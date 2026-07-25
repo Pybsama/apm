@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `devDependencies.mcp` servers declared by a dependency are no longer
+  installed into the consuming project's MCP config. Only
+  `dependencies.mcp` from transitive packages propagate downstream,
+  matching how `devDependencies.apm` is already handled and the documented
+  dev/prod contract. Root-project `devDependencies.mcp` behavior is
+  unchanged. (#2340)
 - `apm install --dry-run` no longer lists the project's own `includes: auto`
   self-managed files under "Files that would be removed"; the orphan preview
   now excludes the synthesized lockfile self-entry, matching the real install
