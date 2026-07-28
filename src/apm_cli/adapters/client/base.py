@@ -29,6 +29,34 @@ _ENV_PLACEHOLDER_RE = re.compile(r"<([A-Z_][A-Z0-9_]*)>|" + _ENV_VAR_RE.pattern)
 # deprecation warnings across all servers in a single install run.
 _LEGACY_ANGLE_VAR_RE = re.compile(r"<([A-Z_][A-Z0-9_]*)>")
 
+# MCP Registry v0.1 names the container registry type ``oci``; the adapters
+# below key their launcher dispatch on ``docker`` (the vocabulary the legacy
+# registry shape used, and what ``_infer_registry_name`` derives from a
+# ``docker`` runtime hint or an image-shaped package name). Without this
+# mapping an ``oci`` package matches no launcher branch and falls through to
+# the generic ``npx`` default, which hands the image reference to npm as a
+# package name -- a dependency-confusion exposure, not just a broken config
+# (#2376). Keyed on the lowercased registry type; unlisted values pass through
+# untouched.
+_REGISTRY_TYPE_ALIASES = {"oci": "docker"}
+
+
+def _docker_image_repository(reference: str) -> str:
+    """Return the repository component of a container image reference.
+
+    Drops an ``@sha256:...`` digest and a trailing ``:tag`` so that two
+    references to the same repository compare equal regardless of how each
+    side is pinned. A ``host:port/`` prefix is preserved, since a tag can
+    only appear in the final path segment.
+    """
+    repository = reference.split("@", 1)[0]
+    last_segment = repository.rsplit("/", 1)[-1]
+    tag_at = last_segment.find(":")
+    if tag_at != -1:
+        repository = repository[: len(repository) - len(last_segment) + tag_at]
+    return repository
+
+
 # Config keys that ``_extra`` passthrough must NEVER set on a rendered harness
 # config. Covers the modeled MCP fields (imported single-source from the model)
 # plus harness-specific aliases that mirror a modeled field under a different
@@ -280,13 +308,16 @@ class MCPClientAdapter(ABC):
 
         Returns:
             str: Inferred registry name (e.g. "npm", "pypi", "docker") or "".
+            Spec spellings that name the same registry as an APM launcher
+            branch are canonicalized via ``_REGISTRY_TYPE_ALIASES`` (v0.1
+            ``oci`` -> ``docker``); every other value is returned verbatim.
         """
         if not package:
             return ""
 
         explicit = package.get("registry_name", "")
         if explicit:
-            return explicit
+            return _REGISTRY_TYPE_ALIASES.get(explicit.strip().lower(), explicit)
 
         name = package.get("name", "")
         runtime_hint = package.get("runtime_hint", "")
@@ -313,6 +344,41 @@ class MCPClientAdapter(ABC):
             return "nuget"
 
         return ""
+
+    @staticmethod
+    def _ensure_docker_image_arg(runtime_args, image):
+        """Return *runtime_args* with the container image operand present.
+
+        ``docker run [OPTIONS] IMAGE`` needs the image after the run options.
+        Registries that list it as the last ``runtime_arguments`` entry already
+        satisfy that; registries that expose it only as the package
+        ``identifier`` leave the resolved args ending at the last option, which
+        would render an image-less ``docker run`` that fails on invocation
+        (#2376).
+
+        The image is appended only when no argument already references the same
+        repository. Comparison is on the repository component, so a digest- or
+        tag-pinned identifier still matches a differently-pinned argument
+        instead of being appended a second time -- a duplicate operand would be
+        parsed by Docker as the container command and break a launcher that
+        previously worked.
+
+        Args:
+            runtime_args (list): Resolved registry runtime arguments.
+            image (str): Container image reference from the package entry.
+
+        Returns:
+            list: A new list of ``docker run`` arguments.
+        """
+        runtime_args = list(runtime_args)
+        if not image:
+            return runtime_args
+        repository = _docker_image_repository(image)
+        for arg in runtime_args:
+            if isinstance(arg, str) and _docker_image_repository(arg) == repository:
+                return runtime_args
+        runtime_args.append(image)
+        return runtime_args
 
     @classmethod
     def _select_best_package(cls, packages):

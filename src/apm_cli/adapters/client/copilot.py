@@ -561,7 +561,8 @@ class CopilotClientAdapter(MCPClientAdapter):
             config["command"] = "docker"
             if processed_runtime_args:
                 config["args"] = self._inject_env_vars_into_docker_args(
-                    processed_runtime_args, resolved_env
+                    self._ensure_docker_image_arg(processed_runtime_args, package_name),
+                    resolved_env,
                 )
             else:
                 config["args"] = DockerArgsProcessor.process_docker_args(
