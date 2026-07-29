@@ -330,7 +330,14 @@ class MCPClientAdapter(ABC):
 
         explicit = package.get("registry_name", "")
         if explicit:
-            return _REGISTRY_TYPE_ALIASES.get(explicit.strip().lower(), explicit)
+            # Registry payloads are untrusted: a non-string here must not abort
+            # the install, and the branches below all compare lowercase, so a
+            # sloppy "DOCKER" should reach them rather than fall through to the
+            # generic npx default.
+            if not isinstance(explicit, str):
+                return explicit
+            canonical = explicit.strip().lower()
+            return _REGISTRY_TYPE_ALIASES.get(canonical, canonical)
 
         name = package.get("name", "")
         runtime_hint = package.get("runtime_hint", "")
@@ -386,10 +393,15 @@ class MCPClientAdapter(ABC):
         runtime_args = list(runtime_args)
         if not image:
             return runtime_args
-        repository = _docker_image_repository(image)
-        for arg in runtime_args:
-            if isinstance(arg, str) and _docker_image_repository(arg) == repository:
-                return runtime_args
+        # Only the trailing entry can be the image: everything before it is a
+        # run option or an option's value. Scanning the whole list instead lets
+        # a value like `--name mcp-server` masquerade as the image and suppress
+        # the append, rendering the very image-less `docker run` this guards.
+        tail = runtime_args[-1] if runtime_args else None
+        if isinstance(tail, str) and _docker_image_repository(tail) == _docker_image_repository(
+            image
+        ):
+            return runtime_args
         runtime_args.append(image)
         return runtime_args
 

@@ -141,6 +141,23 @@ class TestInferRegistryNameOci(unittest.TestCase):
                 registry_type,
             )
 
+    def test_uppercase_registry_types_reach_their_launcher_branch(self):
+        """Dispatch compares lowercase; returning the raw value would send a
+        sloppily-cased type to the generic npx default."""
+        self.assertEqual(
+            MCPClientAdapter._infer_registry_name({"name": "pkg", "registry_name": "NPM"}), "npm"
+        )
+        self.assertEqual(
+            MCPClientAdapter._infer_registry_name({"name": "pkg", "registry_name": "Docker"}),
+            "docker",
+        )
+
+    def test_non_string_registry_type_does_not_raise(self):
+        """Registry payloads are untrusted; a numeric type must not abort install."""
+        self.assertEqual(
+            MCPClientAdapter._infer_registry_name({"name": "p", "registry_name": 5}), 5
+        )
+
     def test_oci_package_wins_container_selection_priority(self):
         """_select_best_package ranks containers above pypi; oci must qualify."""
         pypi_package = {"name": "some-server", "registry_name": "pypi"}
@@ -191,6 +208,19 @@ class TestEnsureDockerImageArg(unittest.TestCase):
             ["run", "--rm"], "myreg.example.com:5000/team/img"
         )
         self.assertEqual(args, ["run", "--rm", "myreg.example.com:5000/team/img"])
+
+    def test_an_option_value_mid_list_does_not_stand_in_for_the_image(self):
+        """`--name <image-basename>` is a common template.
+
+        Only the trailing entry can be the image -- everything before it is a
+        run option or an option's value -- so matching anywhere in the list let
+        `--name mcp-server` suppress the append and render the image-less
+        `docker run` this guard exists to prevent.
+        """
+        args = MCPClientAdapter._ensure_docker_image_arg(
+            ["run", "--rm", "--name", "mcp-server", "-v", "/w:/w"], "mcp-server:1.0"
+        )
+        self.assertEqual(args[-1], "mcp-server:1.0")
 
     def test_docker_hub_short_form_matches_the_qualified_identifier(self):
         """Registries qualify the identifier while their run args stay implicit."""
