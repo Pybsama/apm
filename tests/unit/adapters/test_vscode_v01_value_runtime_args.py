@@ -98,6 +98,87 @@ class TestDockerRunArgs(unittest.TestCase):
         args = VSCodeClientAdapter._docker_run_args(V01_VALUE_PACKAGE, RUNTIME_VARS)
         self.assertIn(f"{WORKDIR}:{WORKDIR}", args)
 
+    def test_typed_entries_read_value_not_the_display_hint(self):
+        """`value_hint` is the schema's display hint for a typed argument.
+
+        Real registry data carries both keys -- see the GitHub MCP fixture in
+        tests/test_codex_docker_args_fix.py -- so preferring the hint renders
+        placeholder words like `env_var_name` as CLI arguments.
+        """
+        package = _docker_package(
+            {"type": "positional", "value": "run", "value_hint": "docker_cmd"},
+            {"type": "positional", "value": "-i", "value_hint": "interactive_flag"},
+            {"type": "named", "name": "-e", "value": "GITHUB_TOKEN", "value_hint": "env_var_name"},
+        )
+        self.assertEqual(
+            VSCodeClientAdapter._docker_run_args(package),
+            ["run", "--rm", "-i", "-e", "GITHUB_TOKEN", IMAGE],
+        )
+
+    def test_valueless_named_flags_survive(self):
+        """Dropping a bare `--read-only` weakens the container's posture."""
+        package = _docker_package(
+            {"type": "positional", "value": "run"},
+            {"type": "named", "name": "--read-only"},
+            {"type": "named", "name": "--network", "value": "none"},
+        )
+        self.assertEqual(
+            VSCodeClientAdapter._docker_run_args(package),
+            ["run", "-i", "--rm", "--read-only", "--network", "none", IMAGE],
+        )
+
+    def test_default_is_used_when_value_is_absent(self):
+        package = _docker_package(
+            {"type": "positional", "value": "run"},
+            {"type": "positional", "default": "--fromdefault"},
+        )
+        self.assertIn("--fromdefault", VSCodeClientAdapter._docker_run_args(package))
+
+    def test_declines_when_the_run_verb_is_not_first(self):
+        """`docker -v run …` is not a run invocation."""
+        package = _docker_package(
+            {"type": "positional", "value": "-v"},
+            {"type": "positional", "value": "run"},
+        )
+        self.assertIsNone(VSCodeClientAdapter._docker_run_args(package))
+
+    def test_placeholder_absent_from_the_template_does_not_decline(self):
+        package = _docker_package(
+            {"type": "positional", "value": "run"},
+            {
+                "type": "positional",
+                "value": "--flag",
+                "variables": {"unused": {"description": "x"}},
+            },
+        )
+        self.assertEqual(
+            VSCodeClientAdapter._docker_run_args(package), ["run", "-i", "--rm", "--flag", IMAGE]
+        )
+
+    def test_a_collected_zero_resolves_rather_than_declining(self):
+        """`0` is a supplied value; only an unset or empty one is unresolved."""
+        package = _docker_package(
+            {"type": "positional", "value": "run"},
+            {"type": "positional", "value": "--port={port}", "variables": {"port": {}}},
+        )
+        self.assertIn("--port=0", VSCodeClientAdapter._docker_run_args(package, {"port": 0}))
+
+    def test_legacy_full_argv_in_package_arguments_is_not_appended_twice(self):
+        """Registry data that repeats the docker argv there is a duplicate, not
+        container arguments -- appending it hands docker a second `run`."""
+        package = _docker_package(
+            {"type": "positional", "value": "run"},
+            {"type": "named", "name": "-e", "value": "TOK"},
+        )
+        package["package_arguments"] = [
+            {"type": "positional", "value": "run"},
+            {"type": "positional", "value": IMAGE},
+        ]
+        self.assertEqual(
+            VSCodeClientAdapter._docker_run_args(package),
+            ["run", "-i", "--rm", "-e", "TOK", IMAGE],
+        )
+
     def test_named_entries_keep_their_flag(self):
         """A named argument contributes the flag as well as its value."""
         package = _docker_package(

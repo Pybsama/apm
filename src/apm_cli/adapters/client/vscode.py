@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 
+from ...core.docker_args import DockerArgsProcessor
 from ...registry.client import SimpleRegistryClient
 from ...registry.integration import RegistryIntegration
 from ...utils.console import _rich_warning
@@ -705,22 +706,30 @@ class VSCodeClientAdapter(MCPClientAdapter):
         Returns:
             list[str] | None: Ordered ``docker`` arguments, or None to decline.
         """
+        if not package:
+            return None
         run_options = cls._docker_arg_values(package.get("runtime_arguments"), runtime_vars)
-        # Without the subcommand there is nothing to normalize flags around and
-        # the rendered entry would not be a `docker run` invocation at all.
-        if run_options is None or "run" not in run_options:
+        # The subcommand has to lead: `docker -v … run` is not a run invocation,
+        # and there would be nothing for the flag normalizer to anchor on.
+        if not run_options or run_options[0] != "run":
             return None
         container_args = cls._docker_arg_values(package.get("package_arguments"), runtime_vars)
         if container_args is None:
             return None
 
+        image = package.get("name")
+        # Some registry data repeats the whole docker argv in package_arguments
+        # instead of describing the container's own arguments. Appending that
+        # after the image would hand docker a second `run …` as the container
+        # command, so treat it as a duplicate of what runtime_arguments said.
+        if "run" in container_args or (image and image in container_args):
+            container_args = []
+
         # Reuse the shared normalizer so a registry template that omits -i/--rm
         # still yields an interactive, self-cleaning container.
-        from ...core.docker_args import DockerArgsProcessor
-
         args: list[str] = DockerArgsProcessor.process_docker_args(run_options, {})
-        args = cls._ensure_docker_image_arg(args, package.get("name"))
-        return args + container_args
+        with_image: list[str] = cls._ensure_docker_image_arg(args, image)
+        return with_image + container_args
 
     @classmethod
     def _docker_arg_values(
@@ -742,15 +751,34 @@ class VSCodeClientAdapter(MCPClientAdapter):
         for arg in entries or []:
             if not isinstance(arg, dict):
                 continue
+            arg_type = arg.get("type")
             # v0.1 marks optional entries with ``isRequired``; only package-level
-            # keys get camelCase-normalized, so accept either spelling here.
-            required = arg.get("is_required", arg.get("isRequired", True))
-            template = arg.get("value_hint")
-            if template is None:
-                template = arg.get("value")
-            if template is None or template == "":
+            # keys get camelCase-normalized, so accept either spelling here. An
+            # explicit null means "unspecified", not "optional".
+            required = arg.get("is_required", arg.get("isRequired"))
+            required = True if required is None else bool(required)
+            if not required and "variables" not in arg:
                 continue
-            template = str(template)
+
+            # A typed entry carries its payload in ``value`` -- ``value_hint`` is
+            # the schema's *display* hint for it, and emitting that renders
+            # placeholder words like "env_var_name" as CLI arguments. Untyped
+            # legacy entries have only the hint. This mirrors
+            # ``CopilotClientAdapter._process_arguments``.
+            if arg_type in ("positional", "named"):
+                raw = arg.get("value", arg.get("default"))
+            else:
+                raw = arg.get("value_hint", arg.get("value", arg.get("default")))
+
+            # A named entry contributes its flag even with no value: dropping a
+            # valueless ``--read-only`` / ``--user`` silently weakens the
+            # container's security posture.
+            if arg_type == "named" and arg.get("name"):
+                args.append(str(arg["name"]))
+            if raw is None or raw == "":
+                continue
+
+            template = str(raw)
             variables = arg.get("variables")
             if isinstance(variables, dict) and variables:
                 substituted = cls._substitute_runtime_variables(template, variables, runtime_vars)
@@ -759,10 +787,6 @@ class VSCodeClientAdapter(MCPClientAdapter):
                         return None
                     continue
                 template = substituted
-            elif not required:
-                continue
-            if arg.get("type") == "named" and arg.get("name"):
-                args.append(str(arg["name"]))
             args.append(template)
         return args
 
@@ -779,14 +803,19 @@ class VSCodeClientAdapter(MCPClientAdapter):
         a mount path.
         """
         for var_name in variables:
+            placeholder = f"{{{var_name}}}"
+            # A descriptor the template never references cannot make it
+            # unresolvable; declining on one would drop a usable argument.
+            if placeholder not in template:
+                continue
             supplied = (runtime_vars or {}).get(var_name)
-            if supplied:
+            if supplied is not None and str(supplied) != "":
                 replacement = str(supplied)
             elif var_name == "workspaceFolder":
                 replacement = "${workspaceFolder}"
             else:
                 return None
-            template = template.replace(f"{{{var_name}}}", replacement)
+            template = template.replace(placeholder, replacement)
         return template
 
     @staticmethod
