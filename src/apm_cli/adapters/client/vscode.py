@@ -668,7 +668,7 @@ class VSCodeClientAdapter(MCPClientAdapter):
         return []
 
     @classmethod
-    def _docker_run_args(cls, package, runtime_vars=None):
+    def _docker_run_args(cls, package: dict, runtime_vars: dict | None = None) -> list[str] | None:
         """Build ``docker run`` arguments from a container package's metadata.
 
         ``_extract_package_args`` cannot serve this path: the npm, pypi, and
@@ -690,9 +690,13 @@ class VSCodeClientAdapter(MCPClientAdapter):
 
         Returns ``None`` -- leaving the caller on its previous synthesized
         launcher -- when the registry arguments cannot form a usable command:
-        no ``run`` verb, or a placeholder this install could not resolve.
-        Emitting a half-substituted mount path would be worse than the
-        image-only command that shipped before.
+        no ``run`` verb, or a placeholder in a required entry that this
+        install could not resolve. Emitting a half-substituted mount path
+        would be worse than the image-only command that shipped before. An
+        *optional* entry whose placeholder is unresolved is dropped on its
+        own instead -- declining a whole working command over a mount the
+        registry itself marked optional would throw away every required
+        argument with it.
 
         Args:
             package (dict): A single package entry from the registry.
@@ -714,15 +718,25 @@ class VSCodeClientAdapter(MCPClientAdapter):
         # still yields an interactive, self-cleaning container.
         from ...core.docker_args import DockerArgsProcessor
 
-        args = DockerArgsProcessor.process_docker_args(run_options, {})
-        return cls._ensure_docker_image_arg(args, package.get("name")) + container_args
+        args: list[str] = DockerArgsProcessor.process_docker_args(run_options, {})
+        args = cls._ensure_docker_image_arg(args, package.get("name"))
+        return args + container_args
 
     @classmethod
-    def _docker_arg_values(cls, entries, runtime_vars):
+    def _docker_arg_values(
+        cls, entries: list | None, runtime_vars: dict | None
+    ) -> list[str] | None:
         """Resolve one registry argument list into CLI argument strings.
 
-        Returns ``None`` when an entry carries a placeholder this install has
-        no value for, so the caller can decline the whole command.
+        Returns ``None`` when a *required* entry carries a placeholder this
+        install has no value for, so the caller can decline the whole command.
+        An optional entry in the same situation is skipped by itself.
+
+        An optional entry whose placeholder DID resolve is kept: its value was
+        explicitly collected from the user, and discarding user-supplied
+        configuration is the failure mode #2377 exists to prevent. (This also
+        matches the legacy ``value_hint`` walk in ``_extract_package_args``,
+        which never gated variables-bearing entries on ``is_required``.)
         """
         args: list[str] = []
         for arg in entries or []:
@@ -739,9 +753,12 @@ class VSCodeClientAdapter(MCPClientAdapter):
             template = str(template)
             variables = arg.get("variables")
             if isinstance(variables, dict) and variables:
-                template = cls._substitute_runtime_variables(template, variables, runtime_vars)
-                if template is None:
-                    return None
+                substituted = cls._substitute_runtime_variables(template, variables, runtime_vars)
+                if substituted is None:
+                    if required:
+                        return None
+                    continue
+                template = substituted
             elif not required:
                 continue
             if arg.get("type") == "named" and arg.get("name"):
@@ -750,7 +767,9 @@ class VSCodeClientAdapter(MCPClientAdapter):
         return args
 
     @staticmethod
-    def _substitute_runtime_variables(template, variables, runtime_vars):
+    def _substitute_runtime_variables(
+        template: str, variables: dict, runtime_vars: dict | None
+    ) -> str | None:
         """Substitute ``{var}`` placeholders, or return None if unresolvable.
 
         ``workspaceFolder`` resolves to VS Code's own ``${workspaceFolder}``

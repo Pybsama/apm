@@ -153,6 +153,43 @@ class TestDockerRunArgs(unittest.TestCase):
             "${workspaceFolder}:/workspace", VSCodeClientAdapter._docker_run_args(package)
         )
 
+    def test_optional_entry_with_a_collected_value_is_kept(self):
+        """An optional mount whose variable the user filled in must survive --
+        discarding user-supplied configuration is the #2377 failure mode."""
+        package = _docker_package(
+            {"value": "run", "type": "positional"},
+            {"value": "-v", "type": "positional"},
+            {
+                "value": "{cacheDir}:/cache",
+                "type": "positional",
+                "is_required": False,
+                "variables": {"cacheDir": {"description": "cache"}},
+            },
+        )
+        self.assertEqual(
+            VSCodeClientAdapter._docker_run_args(package, {"cacheDir": "/home/dev/.cache"}),
+            ["run", "-i", "--rm", "-v", "/home/dev/.cache:/cache", IMAGE],
+        )
+
+    def test_optional_entry_with_an_unresolved_variable_is_dropped_alone(self):
+        """A registry-declared optional mount must not take the whole command
+        down with it -- only the unresolvable entry is skipped."""
+        package = _docker_package(
+            {"value": "run", "type": "positional"},
+            {"value": "-w", "type": "positional"},
+            {"value": "{workdir}", "type": "positional", "variables": _WORKDIR_VAR},
+            {
+                "value": "{cacheDir}:/cache",
+                "type": "positional",
+                "is_required": False,
+                "variables": {"cacheDir": {"description": "cache"}},
+            },
+        )
+        self.assertEqual(
+            VSCodeClientAdapter._docker_run_args(package, {"workdir": WORKDIR}),
+            ["run", "-i", "--rm", "-w", WORKDIR, IMAGE],
+        )
+
     def test_optional_entry_is_skipped_in_either_spelling(self):
         """Argument-level keys are not camelCase-normalized, so accept both."""
         for key in ("is_required", "isRequired"):
