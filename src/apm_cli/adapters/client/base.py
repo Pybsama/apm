@@ -48,12 +48,25 @@ def _docker_image_repository(reference: str) -> str:
     references to the same repository compare equal regardless of how each
     side is pinned. A ``host:port/`` prefix is preserved, since a tag can
     only appear in the final path segment.
+
+    Docker Hub is also folded to its short form: a registry commonly
+    publishes a fully qualified ``identifier`` while the run arguments it
+    ships use the implicit spelling, and treating those as different
+    repositories would append a second image operand.
     """
     repository = reference.split("@", 1)[0]
     last_segment = repository.rsplit("/", 1)[-1]
     tag_at = last_segment.find(":")
     if tag_at != -1:
         repository = repository[: len(repository) - len(last_segment) + tag_at]
+    for default_registry in ("docker.io/", "index.docker.io/"):
+        if repository.startswith(default_registry):
+            repository = repository[len(default_registry) :]
+            break
+    # Only meaningful once the implicit registry is stripped: ``library/`` is
+    # where Docker Hub keeps official images, so ``library/redis`` is ``redis``.
+    if repository.startswith("library/"):
+        repository = repository[len("library/") :]
     return repository
 
 

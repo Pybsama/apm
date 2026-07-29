@@ -192,6 +192,24 @@ class TestEnsureDockerImageArg(unittest.TestCase):
         )
         self.assertEqual(args, ["run", "--rm", "myreg.example.com:5000/team/img"])
 
+    def test_docker_hub_short_form_matches_the_qualified_identifier(self):
+        """Registries qualify the identifier while their run args stay implicit."""
+        base = ["run", "-i", "--rm", "mcp/github"]
+        args = MCPClientAdapter._ensure_docker_image_arg(base, "docker.io/mcp/github")
+        self.assertEqual(args, base)
+
+    def test_official_image_library_prefix_is_folded(self):
+        base = ["run", "redis"]
+        args = MCPClientAdapter._ensure_docker_image_arg(base, "docker.io/library/redis:7")
+        self.assertEqual(args, base)
+
+    def test_non_docker_hub_library_path_is_not_folded(self):
+        """`library/` is only implicit on Docker Hub; elsewhere it is a real path."""
+        args = MCPClientAdapter._ensure_docker_image_arg(
+            ["run", "redis"], "ghcr.io/library/redis:7"
+        )
+        self.assertEqual(args, ["run", "redis", "ghcr.io/library/redis:7"])
+
     def test_distinct_image_repositories_are_not_conflated(self):
         args = MCPClientAdapter._ensure_docker_image_arg(
             ["run", "ghcr.io/other/img:1.0"], "ghcr.io/example/img:1.0"
