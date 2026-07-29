@@ -309,6 +309,27 @@ class TestOciLauncherAcrossTargets(unittest.TestCase):
         self.assertIn("-e", args)
         self.assertLess(args.index("-e"), args.index(OCI_IMAGE), "env flags must precede the image")
 
+    def test_codex_container_argv_follows_the_image(self):
+        """package_arguments are the container's argv: after the image, with
+        the -e run option still ahead of it -- the composition that previously
+        pushed -e into the argv left the env var unset in the container."""
+        package = dict(OCI_PACKAGE)
+        package["environment_variables"] = [{"name": "API_KEY", "is_required": True}]
+        package["package_arguments"] = [
+            {"value": "--transport", "type": "named"},
+            {"value": "stdio", "type": "positional"},
+        ]
+        config = _make_codex()._format_server_config(
+            {"id": "s", "name": "s", "packages": [package]},
+            env_overrides={"API_KEY": "secret"},
+            runtime_vars=RUNTIME_VARS,
+        )
+        args = config.get("args", [])
+        image_at = args.index(OCI_IMAGE)
+        self.assertLess(args.index("-e"), image_at, "env flags must precede the image")
+        self.assertGreater(args.index("--transport"), image_at, "container argv must follow it")
+        self.assertEqual(args[-2:], ["--transport", "stdio"])
+
     def test_vscode_still_renders_a_docker_launcher_for_an_oci_package(self):
         """Guard: VS Code already keyed off runtime_hint, and must stay that way.
 

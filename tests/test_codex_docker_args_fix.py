@@ -339,17 +339,21 @@ class TestCodexDockerArgsFix:
             config = codex_adapter.get_current_config()
             server_config = config["mcp_servers"]["test-docker-server"]
 
-            # Check that both runtime_arguments and package_arguments are combined
-            # Plus -e flags for environment variables (inserted before image name)
+            # docker run [OPTIONS] IMAGE [ARG...]: the -e flag is a run option
+            # and must precede the image, while package_arguments are the
+            # container's own argv and follow it. The previous expectation had
+            # the -e landing inside the container argv (after the image,
+            # splitting --config from its value), where docker never applies
+            # it -- the TEST_TOKEN env var silently did not reach the server.
             expected_args = [
                 "run",
                 "-i",
                 "--rm",
+                "-e",
+                "TEST_TOKEN",
                 "example/test-server",
                 "--verbose",
                 "--config",
-                "-e",
-                "TEST_TOKEN",
                 "/app/config.json",
             ]
             assert server_config["args"] == expected_args
