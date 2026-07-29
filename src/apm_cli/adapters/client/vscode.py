@@ -685,6 +685,9 @@ class VSCodeClientAdapter(MCPClientAdapter):
         contribute their flag as well as its value, matching
         ``CopilotClientAdapter._process_arguments``.
 
+        ``package_arguments`` are the container's own argv and follow the image
+        per ``docker run [OPTIONS] IMAGE [ARG...]``.
+
         Returns ``None`` -- leaving the caller on its previous synthesized
         launcher -- when the registry arguments cannot form a usable command:
         no ``run`` verb, or a placeholder this install could not resolve.
@@ -698,8 +701,31 @@ class VSCodeClientAdapter(MCPClientAdapter):
         Returns:
             list[str] | None: Ordered ``docker`` arguments, or None to decline.
         """
+        run_options = cls._docker_arg_values(package.get("runtime_arguments"), runtime_vars)
+        # Without the subcommand there is nothing to normalize flags around and
+        # the rendered entry would not be a `docker run` invocation at all.
+        if run_options is None or "run" not in run_options:
+            return None
+        container_args = cls._docker_arg_values(package.get("package_arguments"), runtime_vars)
+        if container_args is None:
+            return None
+
+        # Reuse the shared normalizer so a registry template that omits -i/--rm
+        # still yields an interactive, self-cleaning container.
+        from ...core.docker_args import DockerArgsProcessor
+
+        args = DockerArgsProcessor.process_docker_args(run_options, {})
+        return cls._ensure_docker_image_arg(args, package.get("name")) + container_args
+
+    @classmethod
+    def _docker_arg_values(cls, entries, runtime_vars):
+        """Resolve one registry argument list into CLI argument strings.
+
+        Returns ``None`` when an entry carries a placeholder this install has
+        no value for, so the caller can decline the whole command.
+        """
         args: list[str] = []
-        for arg in package.get("runtime_arguments") or []:
+        for arg in entries or []:
             if not isinstance(arg, dict):
                 continue
             # v0.1 marks optional entries with ``isRequired``; only package-level
@@ -721,18 +747,7 @@ class VSCodeClientAdapter(MCPClientAdapter):
             if arg.get("type") == "named" and arg.get("name"):
                 args.append(str(arg["name"]))
             args.append(template)
-
-        # Without the subcommand there is nothing to normalize flags around and
-        # the rendered entry would not be a `docker run` invocation at all.
-        if "run" not in args:
-            return None
-
-        # Reuse the shared normalizer so a registry template that omits -i/--rm
-        # still yields an interactive, self-cleaning container.
-        from ...core.docker_args import DockerArgsProcessor
-
-        args = DockerArgsProcessor.process_docker_args(args, {})
-        return cls._ensure_docker_image_arg(args, package.get("name"))
+        return args
 
     @staticmethod
     def _substitute_runtime_variables(template, variables, runtime_vars):

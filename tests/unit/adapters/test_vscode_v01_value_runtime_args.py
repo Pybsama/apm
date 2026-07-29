@@ -175,6 +175,29 @@ class TestDockerRunArgs(unittest.TestCase):
         )
         self.assertEqual(VSCodeClientAdapter._docker_run_args(package), FALLBACK_ARGS)
 
+    def test_package_arguments_follow_the_image_as_container_argv(self):
+        """docker run [OPTIONS] IMAGE [ARG...] -- container args come last."""
+        package = _docker_package({"value": "run", "type": "positional"})
+        package["package_arguments"] = [
+            {"value": "--transport", "type": "named"},
+            {"value": "stdio", "type": "positional"},
+        ]
+        self.assertEqual(
+            VSCodeClientAdapter._docker_run_args(package),
+            ["run", "-i", "--rm", IMAGE, "--transport", "stdio"],
+        )
+
+    def test_unresolvable_package_argument_also_declines(self):
+        package = _docker_package({"value": "run", "type": "positional"})
+        package["package_arguments"] = [
+            {
+                "value": "{configPath}",
+                "type": "positional",
+                "variables": {"configPath": {"description": "cfg"}},
+            }
+        ]
+        self.assertIsNone(VSCodeClientAdapter._docker_run_args(package))
+
     # -- declining cases: the caller keeps its previous launcher --------------
 
     def test_declines_when_the_run_verb_is_absent(self):
@@ -297,6 +320,25 @@ class TestRenderedDockerLauncher(unittest.TestCase):
 
     def test_package_without_runtime_args_keeps_the_synthesized_launcher(self):
         config = _config({"name": IMAGE, "registry_name": "oci", "runtime_hint": "docker"})
+        self.assertEqual(config.get("args"), FALLBACK_ARGS)
+
+    def test_legacy_full_argv_in_package_arguments_stays_verbatim(self):
+        """Some registry data authors the complete docker argv in
+        package_arguments; without a run verb in runtime_arguments the builder
+        declines and the pre-change verbatim path still applies."""
+        config = _config(
+            {
+                "name": IMAGE,
+                "registry_name": "docker",
+                "runtime_hint": "docker",
+                "package_arguments": [
+                    {"value": "run", "type": "positional"},
+                    {"value": "-i", "type": "positional"},
+                    {"value": "--rm", "type": "positional"},
+                    {"value": IMAGE, "type": "positional"},
+                ],
+            }
+        )
         self.assertEqual(config.get("args"), FALLBACK_ARGS)
 
 
