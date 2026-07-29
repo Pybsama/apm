@@ -311,23 +311,12 @@ class VSCodeClientAdapter(MCPClientAdapter):
 
             # Handle docker packages
             elif is_docker:
-                runtime_args = self._extract_package_args(
-                    {"runtime_arguments": package.get("runtime_arguments") or []},
-                    runtime_vars=runtime_vars,
-                )
-                package_args = (
-                    self._extract_package_args(
-                        {"package_arguments": package["package_arguments"]},
-                        runtime_vars=runtime_vars,
+                args = self._docker_run_args(package, runtime_vars) or (
+                    self._ensure_docker_image_arg(
+                        ["run", "-i", "--rm"],
+                        package.get("name"),
                     )
-                    if package.get("package_arguments")
-                    else []
                 )
-                args = self._ensure_docker_image_arg(
-                    runtime_args or ["run", "-i", "--rm"],
-                    package.get("name"),
-                )
-                args += package_args
 
                 server_config = {"type": "stdio", "command": "docker", "args": args}
 
@@ -677,6 +666,94 @@ class VSCodeClientAdapter(MCPClientAdapter):
                 return args
 
         return []
+
+    @classmethod
+    def _docker_run_args(cls, package, runtime_vars=None):
+        """Build ``docker run`` arguments from a container package's metadata.
+
+        ``_extract_package_args`` cannot serve this path: the npm, pypi, and
+        generic branches read an empty extraction as "synthesize the command
+        from the package name", so teaching it the MCP Registry v0.1 argument
+        shape would strip the package name out of those launchers. Container
+        packages instead need the registry's run options assembled into a
+        launchable command, which is what this builds.
+
+        Handles both argument spellings -- v0.1 ``value`` (beside a ``type``)
+        and the legacy ``value_hint`` -- because reading only the latter
+        dropped every option a v0.1 registry supplied, including mounts whose
+        values APM had just collected from the user (#2377). ``named`` entries
+        contribute their flag as well as its value, matching
+        ``CopilotClientAdapter._process_arguments``.
+
+        Returns ``None`` -- leaving the caller on its previous synthesized
+        launcher -- when the registry arguments cannot form a usable command:
+        no ``run`` verb, or a placeholder this install could not resolve.
+        Emitting a half-substituted mount path would be worse than the
+        image-only command that shipped before.
+
+        Args:
+            package (dict): A single package entry from the registry.
+            runtime_vars (dict, optional): Collected runtime variable values.
+
+        Returns:
+            list[str] | None: Ordered ``docker`` arguments, or None to decline.
+        """
+        args: list[str] = []
+        for arg in package.get("runtime_arguments") or []:
+            if not isinstance(arg, dict):
+                continue
+            # v0.1 marks optional entries with ``isRequired``; only package-level
+            # keys get camelCase-normalized, so accept either spelling here.
+            required = arg.get("is_required", arg.get("isRequired", True))
+            template = arg.get("value_hint")
+            if template is None:
+                template = arg.get("value")
+            if template is None or template == "":
+                continue
+            template = str(template)
+            variables = arg.get("variables")
+            if isinstance(variables, dict) and variables:
+                template = cls._substitute_runtime_variables(template, variables, runtime_vars)
+                if template is None:
+                    return None
+            elif not required:
+                continue
+            if arg.get("type") == "named" and arg.get("name"):
+                args.append(str(arg["name"]))
+            args.append(template)
+
+        # Without the subcommand there is nothing to normalize flags around and
+        # the rendered entry would not be a `docker run` invocation at all.
+        if "run" not in args:
+            return None
+
+        # Reuse the shared normalizer so a registry template that omits -i/--rm
+        # still yields an interactive, self-cleaning container.
+        from ...core.docker_args import DockerArgsProcessor
+
+        args = DockerArgsProcessor.process_docker_args(args, {})
+        return cls._ensure_docker_image_arg(args, package.get("name"))
+
+    @staticmethod
+    def _substitute_runtime_variables(template, variables, runtime_vars):
+        """Substitute ``{var}`` placeholders, or return None if unresolvable.
+
+        ``workspaceFolder`` resolves to VS Code's own ``${workspaceFolder}``
+        token, which the editor expands at server start. Any other name that
+        this install did not collect a value for has no such fallback, so the
+        caller is told to decline rather than write a literal ``${name}`` into
+        a mount path.
+        """
+        for var_name in variables:
+            supplied = (runtime_vars or {}).get(var_name)
+            if supplied:
+                replacement = str(supplied)
+            elif var_name == "workspaceFolder":
+                replacement = "${workspaceFolder}"
+            else:
+                return None
+            template = template.replace(f"{{{var_name}}}", replacement)
+        return template
 
     @staticmethod
     def _select_remote_with_url(remotes):
