@@ -131,6 +131,28 @@ class TestDockerRunArgs(unittest.TestCase):
             ["run", "-i", "--rm", "--read-only", "--network", "none", IMAGE],
         )
 
+    def test_required_value_taking_option_without_value_declines(self):
+        package = _docker_package(
+            {"type": "positional", "value": "run"},
+            {"type": "named", "name": "--user"},
+        )
+        self.assertIsNone(VSCodeClientAdapter._docker_run_args(package))
+
+    def test_optional_value_taking_option_without_value_is_dropped(self):
+        package = _docker_package(
+            {"type": "positional", "value": "run"},
+            {
+                "type": "named",
+                "name": "--network",
+                "is_required": False,
+                "variables": {},
+            },
+        )
+        self.assertEqual(
+            VSCodeClientAdapter._docker_run_args(package),
+            ["run", "-i", "--rm", IMAGE],
+        )
+
     def test_default_is_used_when_value_is_absent(self):
         package = _docker_package(
             {"type": "positional", "value": "run"},

@@ -354,6 +354,7 @@ class CodexClientAdapter(MCPClientAdapter):
                         config["env"] = resolved_env
                 elif registry_name == "docker":
                     config["command"] = "docker"
+                    runtime_args = processed_runtime_args or ["run", "-i", "--rm"]
 
                     # For Docker packages in Codex TOML format:
                     # - Ensure all environment variables from resolved_env are represented as -e flags in args
@@ -368,7 +369,7 @@ class CodexClientAdapter(MCPClientAdapter):
                     # container argv, where docker never applies them.
                     config["args"] = (
                         self._ensure_docker_env_flags(
-                            self._ensure_docker_image_arg(processed_runtime_args, package_name),
+                            self._ensure_docker_image_arg(runtime_args, package_name),
                             resolved_env,
                         )
                         + processed_package_args

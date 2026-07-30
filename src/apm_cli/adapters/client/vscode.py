@@ -727,6 +727,8 @@ class VSCodeClientAdapter(MCPClientAdapter):
             else:
                 run_options = package_args[: image_index + 1]
                 package_args = package_args[image_index + 1 :]
+        elif not run_options and package_args:
+            run_options = ["run", "-i", "--rm"]
         # The subcommand has to lead: `docker -v … run` is not a run invocation,
         # and there would be nothing for the flag normalizer to anchor on.
         if not run_options or run_options[0] != "run":
@@ -791,7 +793,12 @@ class VSCodeClientAdapter(MCPClientAdapter):
                 # A named entry contributes its flag even with no value:
                 # dropping ``--read-only`` silently weakens the container.
                 if arg_type == "named" and arg.get("name"):
-                    args.append(str(arg["name"]))
+                    name = str(arg["name"])
+                    if cls._docker_option_requires_value(name):
+                        if required:
+                            return None
+                        continue
+                    args.append(name)
                 continue
 
             template = str(raw)

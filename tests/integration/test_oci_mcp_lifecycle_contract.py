@@ -35,6 +35,8 @@ _VALUE_SERVER_NAME = "com.example.lifecycle/vscode-value-server"
 _VALUE_SERVER_IMAGE = "registry.example.invalid/team/vscode-value-server:2.0.0"
 _WORKDIR_VARIABLE = "MCP_TEST_WORKDIR"
 _WORKDIR_VALUE = "/fixture/workdir"
+_CONFIG_VARIABLE = "MCP_TEST_CONFIG"
+_CONFIG_VALUE = "/fixture/config.json"
 
 
 @dataclass(frozen=True)
@@ -157,7 +159,18 @@ def _vscode_value_server_document() -> dict[str, object]:
                         "type": "named",
                         "name": "--transport",
                         "value": "stdio",
-                    }
+                    },
+                    {
+                        "type": "named",
+                        "name": "--config",
+                        "value": f"{{{_CONFIG_VARIABLE}}}",
+                        "variables": {
+                            _CONFIG_VARIABLE: {
+                                "description": "Container config path",
+                                "isRequired": True,
+                            }
+                        },
+                    },
                 ],
             }
         ],
@@ -352,7 +365,11 @@ def test_vscode_typed_value_mount_survives_install_update_and_offline_audit(
         timeout_seconds=120,
         scenario_timeout_seconds=300,
     )
-    install_env = isolated.subprocess_env(overrides={_WORKDIR_VARIABLE: _WORKDIR_VALUE})
+    runtime_values = {
+        _WORKDIR_VARIABLE: _WORKDIR_VALUE,
+        _CONFIG_VARIABLE: _CONFIG_VALUE,
+    }
+    install_env = isolated.subprocess_env(overrides=runtime_values)
     install_env.pop("PYTHONPATH")
     install_env["MCP_REGISTRY_ALLOW_HTTP"] = "1"
     reinstall = (
@@ -377,6 +394,8 @@ def test_vscode_typed_value_mount_survives_install_update_and_offline_audit(
         _VALUE_SERVER_IMAGE,
         "--transport",
         "stdio",
+        "--config",
+        _CONFIG_VALUE,
     ]
 
     with registry_factory.start(_vscode_value_server_document()) as registry:
@@ -431,7 +450,7 @@ def test_vscode_typed_value_mount_survives_install_update_and_offline_audit(
         assert any(path.startswith("/v0.1/servers?") for path in registry.request_paths)
         assert any(path.endswith("/versions/latest") for path in registry.request_paths)
 
-    audit_env = isolated.subprocess_env(overrides={_WORKDIR_VARIABLE: _WORKDIR_VALUE})
+    audit_env = isolated.subprocess_env(overrides=runtime_values)
     before_audit = LifecycleStateSnapshot.capture(project, config_paths=(config_path,))
     audit = runner.run(
         ("audit", "--ci", "--no-policy", "--format", "json"),

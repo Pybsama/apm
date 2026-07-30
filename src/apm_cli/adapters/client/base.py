@@ -433,12 +433,14 @@ class MCPClientAdapter(ABC):
             return ""
 
         explicit = package.get("registry_name", "")
-        if explicit:
+        if not isinstance(explicit, str):
             # Registry payloads are untrusted. A malformed explicit value must
             # fail closed rather than miss every launcher branch and reach the
             # generic npx fallback with an untrusted package name.
-            if not isinstance(explicit, str):
-                raise ValueError("MCP package registry_name must be a string")
+            raise ValueError("MCP package registry_name must be a string")
+        if explicit and not explicit.strip():
+            raise ValueError("MCP package registry_name must not be whitespace")
+        if explicit:
             canonical = explicit.strip().lower()
             return _REGISTRY_TYPE_ALIASES.get(canonical, canonical)
 
@@ -477,6 +479,21 @@ class MCPClientAdapter(ABC):
             and _docker_image_repository(left) == _docker_image_repository(right)
         )
 
+    @staticmethod
+    def _docker_option_requires_value(argument: Any) -> bool:
+        """Return whether a Docker run option needs a separate value."""
+        if not isinstance(argument, str) or "=" in argument:
+            return False
+        if argument.startswith("--"):
+            return argument in _DOCKER_RUN_OPTIONS_WITH_VALUES
+        if not argument.startswith("-") or argument == "-":
+            return False
+        short_options = argument[1:]
+        for index, short_name in enumerate(short_options):
+            if f"-{short_name}" in _DOCKER_RUN_OPTIONS_WITH_VALUES:
+                return index == len(short_options) - 1
+        return False
+
     @classmethod
     def _docker_image_arg_index(
         cls,
@@ -499,10 +516,7 @@ class MCPClientAdapter(ABC):
                 )
                 continue
             if isinstance(argument, str) and argument.startswith("-") and argument != "-":
-                option = argument[:2]
-                index += (
-                    2 if len(argument) == 2 and option in _DOCKER_RUN_OPTIONS_WITH_VALUES else 1
-                )
+                index += 2 if cls._docker_option_requires_value(argument) else 1
                 continue
             break
         if index >= len(runtime_args):
