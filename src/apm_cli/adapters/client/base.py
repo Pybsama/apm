@@ -39,6 +39,77 @@ _LEGACY_ANGLE_VAR_RE = re.compile(r"<([A-Z_][A-Z0-9_]*)>")
 # (#2376). Keyed on the lowercased registry type; unlisted values pass through
 # untouched.
 _REGISTRY_TYPE_ALIASES = {"oci": "docker"}
+_DOCKER_RUN_OPTIONS_WITH_VALUES = frozenset(
+    {
+        "--add-host",
+        "--annotation",
+        "--attach",
+        "--cap-add",
+        "--cap-drop",
+        "--cgroup-parent",
+        "--cgroupns",
+        "--cidfile",
+        "--cpus",
+        "--cpuset-cpus",
+        "--cpuset-mems",
+        "--device",
+        "--dns",
+        "--dns-option",
+        "--dns-search",
+        "--domainname",
+        "--entrypoint",
+        "--env",
+        "--env-file",
+        "--expose",
+        "--gpus",
+        "--group-add",
+        "--health-cmd",
+        "--hostname",
+        "--ipc",
+        "--isolation",
+        "--label",
+        "--label-file",
+        "--link",
+        "--log-driver",
+        "--log-opt",
+        "--mac-address",
+        "--memory",
+        "--mount",
+        "--name",
+        "--network",
+        "--network-alias",
+        "--pid",
+        "--platform",
+        "--publish",
+        "--restart",
+        "--runtime",
+        "--security-opt",
+        "--shm-size",
+        "--stop-signal",
+        "--stop-timeout",
+        "--storage-opt",
+        "--sysctl",
+        "--tmpfs",
+        "--ulimit",
+        "--user",
+        "--userns",
+        "--uts",
+        "--volume",
+        "--volume-driver",
+        "--volumes-from",
+        "--workdir",
+        "-a",
+        "-c",
+        "-e",
+        "-h",
+        "-l",
+        "-m",
+        "-p",
+        "-u",
+        "-v",
+        "-w",
+    }
+)
 
 
 def _docker_image_repository(reference: str) -> str:
@@ -398,8 +469,16 @@ class MCPClientAdapter(ABC):
         # a value like `--name mcp-server` masquerade as the image and suppress
         # the append, rendering the very image-less `docker run` this guards.
         tail = runtime_args[-1] if runtime_args else None
-        if isinstance(tail, str) and _docker_image_repository(tail) == _docker_image_repository(
-            image
+        previous = runtime_args[-2] if len(runtime_args) > 1 else None
+        tail_is_option_value = (
+            isinstance(previous, str)
+            and "=" not in previous
+            and previous in _DOCKER_RUN_OPTIONS_WITH_VALUES
+        )
+        if (
+            not tail_is_option_value
+            and isinstance(tail, str)
+            and _docker_image_repository(tail) == _docker_image_repository(image)
         ):
             return runtime_args
         runtime_args.append(image)

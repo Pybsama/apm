@@ -714,12 +714,15 @@ class VSCodeClientAdapter(MCPClientAdapter):
         if not package:
             return None
         run_options = cls._docker_arg_values(package.get("runtime_arguments"), runtime_vars)
+        package_args = cls._docker_arg_values(package.get("package_arguments"), runtime_vars)
+        if package_args is None:
+            return None
+        if not run_options and package_args and package_args[0] == "run":
+            run_options = package_args
+            package_args = []
         # The subcommand has to lead: `docker -v … run` is not a run invocation,
         # and there would be nothing for the flag normalizer to anchor on.
         if not run_options or run_options[0] != "run":
-            return None
-        container_args = cls._docker_arg_values(package.get("package_arguments"), runtime_vars)
-        if container_args is None:
             return None
 
         image = package.get("name")
@@ -727,14 +730,14 @@ class VSCodeClientAdapter(MCPClientAdapter):
         # instead of describing the container's own arguments. Appending that
         # after the image would hand docker a second `run …` as the container
         # command, so treat it as a duplicate of what runtime_arguments said.
-        if "run" in container_args or (image and image in container_args):
-            container_args = []
+        if (package_args and package_args[0] == "run") or (image and image in package_args):
+            package_args = []
 
         # Reuse the shared normalizer so a registry template that omits -i/--rm
         # still yields an interactive, self-cleaning container.
         args: list[str] = DockerArgsProcessor.process_docker_args(run_options, {})
         with_image: list[str] = cls._ensure_docker_image_arg(args, image)
-        return with_image + container_args
+        return with_image + package_args
 
     @classmethod
     def _docker_arg_values(
@@ -775,12 +778,11 @@ class VSCodeClientAdapter(MCPClientAdapter):
             else:
                 raw = arg.get("value_hint", arg.get("value", arg.get("default")))
 
-            # A named entry contributes its flag even with no value: dropping a
-            # valueless ``--read-only`` / ``--user`` silently weakens the
-            # container's security posture.
-            if arg_type == "named" and arg.get("name"):
-                args.append(str(arg["name"]))
             if raw is None or raw == "":
+                # A named entry contributes its flag even with no value:
+                # dropping ``--read-only`` silently weakens the container.
+                if arg_type == "named" and arg.get("name"):
+                    args.append(str(arg["name"]))
                 continue
 
             template = str(raw)
@@ -792,6 +794,8 @@ class VSCodeClientAdapter(MCPClientAdapter):
                         return None
                     continue
                 template = substituted
+            if arg_type == "named" and arg.get("name"):
+                args.append(str(arg["name"]))
             args.append(template)
         return args
 

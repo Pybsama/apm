@@ -275,6 +275,22 @@ class TestDockerRunArgs(unittest.TestCase):
             ["run", "-i", "--rm", "-w", WORKDIR, IMAGE],
         )
 
+    def test_optional_named_entry_drops_its_flag_with_unresolved_value(self):
+        package = _docker_package(
+            {"value": "run", "type": "positional"},
+            {
+                "name": "--mount",
+                "value": "type=bind,src={cacheDir},dst=/cache",
+                "type": "named",
+                "is_required": False,
+                "variables": {"cacheDir": {"description": "cache"}},
+            },
+        )
+        self.assertEqual(
+            VSCodeClientAdapter._docker_run_args(package),
+            ["run", "-i", "--rm", IMAGE],
+        )
+
     def test_optional_entry_is_skipped_in_either_spelling(self):
         """Argument-level keys are not camelCase-normalized, so accept both."""
         for key in ("is_required", "isRequired"):
@@ -465,11 +481,12 @@ class TestRenderedDockerLauncher(unittest.TestCase):
                     {"value": "run", "type": "positional"},
                     {"value": "-i", "type": "positional"},
                     {"value": "--rm", "type": "positional"},
+                    {"value": "--read-only", "type": "positional"},
                     {"value": IMAGE, "type": "positional"},
                 ],
             }
         )
-        self.assertEqual(config.get("args"), FALLBACK_ARGS)
+        self.assertEqual(config.get("args"), ["run", "-i", "--rm", "--read-only", IMAGE])
 
 
 if __name__ == "__main__":

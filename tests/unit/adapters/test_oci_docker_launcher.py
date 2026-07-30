@@ -227,6 +227,12 @@ class TestEnsureDockerImageArg(unittest.TestCase):
         )
         self.assertEqual(args[-1], "mcp-server:1.0")
 
+    def test_a_trailing_option_value_does_not_stand_in_for_the_image(self):
+        args = MCPClientAdapter._ensure_docker_image_arg(
+            ["run", "--rm", "--name", "mcp-server"], "mcp-server:1.0"
+        )
+        self.assertEqual(args, ["run", "--rm", "--name", "mcp-server", "mcp-server:1.0"])
+
     def test_docker_hub_short_form_matches_the_qualified_identifier(self):
         """Registries qualify the identifier while their run args stay implicit."""
         base = ["run", "-i", "--rm", "mcp/github"]
