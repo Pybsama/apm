@@ -308,7 +308,19 @@ class VSCodeClientAdapter(MCPClientAdapter):
 
             # Handle docker packages
             elif runtime_hint == "docker" or registry_name == "docker":
-                args = pkg_args if pkg_args else ["run", "-i", "--rm", package.get("name")]
+                runtime_args = self._extract_package_args(
+                    {"runtime_arguments": package.get("runtime_arguments") or []},
+                    runtime_vars=runtime_vars,
+                )
+                package_args = self._extract_package_args(
+                    {"package_arguments": package.get("package_arguments") or []},
+                    runtime_vars=runtime_vars,
+                )
+                args = self._ensure_docker_image_arg(
+                    runtime_args or ["run", "-i", "--rm"],
+                    package.get("name"),
+                )
+                args += package_args
 
                 server_config = {"type": "stdio", "command": "docker", "args": args}
 
@@ -652,6 +664,8 @@ class VSCodeClientAdapter(MCPClientAdapter):
                     elif "value_hint" in arg and arg["value_hint"] and "is_required" not in arg:
                         # v0.1 format: plain value_hint entries without is_required
                         args.append(arg["value_hint"])
+                    elif arg.get("value"):
+                        args.append(arg["value"])
             if args:
                 return args
 

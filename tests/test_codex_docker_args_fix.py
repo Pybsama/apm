@@ -389,6 +389,8 @@ class TestCodexDockerArgsFix:
                 "-e",
                 "GITHUB_DYNAMIC_TOOLSETS",
                 "-e",
+                "GITHUB_HOST",
+                "-e",
                 "GITHUB_READ_ONLY",
                 "-e",
                 "GITHUB_TOOLSETS",
@@ -401,9 +403,7 @@ class TestCodexDockerArgsFix:
             assert args.count("run") == 1
             assert args.count("-i") == 1
             assert args.count("--rm") == 1
-            assert (
-                args.count("-e") == 4
-            )  # One for each environment variable (including GITHUB_DYNAMIC_TOOLSETS default)
+            assert args.count("-e") == 5
             assert args.count("GITHUB_PERSONAL_ACCESS_TOKEN") == 1
             assert args.count("ghcr.io/github/github-mcp-server") == 1
 
@@ -497,6 +497,8 @@ class TestCodexDockerArgsFix:
                 "GITHUB_PERSONAL_ACCESS_TOKEN",
                 "-e",
                 "GITHUB_DYNAMIC_TOOLSETS",
+                "-e",
+                "GITHUB_HOST",
                 "-e",
                 "GITHUB_READ_ONLY",
                 "-e",

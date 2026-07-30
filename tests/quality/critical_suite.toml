@@ -76,6 +76,14 @@ path = "tests/integration/test_config_surface_lifecycle_contract.py"
 marker = "e2e"
 
 [[modules]]
+path = "tests/integration/test_oci_mcp_lifecycle_contract.py"
+marker = "e2e"
+
+[[modules]]
+path = "tests/unit/adapters/test_oci_docker_launcher.py"
+marker = "unit"
+
+[[modules]]
 path = "tests/integration/test_package_shape_lifecycle_contract.py"
 marker = "e2e"
 

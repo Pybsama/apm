@@ -17,11 +17,15 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 from apm_cli.adapters.client.base import MCPClientAdapter
 from apm_cli.adapters.client.codex import CodexClientAdapter
 from apm_cli.adapters.client.copilot import CopilotClientAdapter
 from apm_cli.adapters.client.gemini import GeminiClientAdapter
 from apm_cli.adapters.client.vscode import VSCodeClientAdapter
+
+pytestmark = pytest.mark.unit
 
 # ---------------------------------------------------------------------------
 # Fixtures -- the reporting registry's shape, after the registry client maps
@@ -153,9 +157,12 @@ class TestInferRegistryNameOci(unittest.TestCase):
         )
 
     def test_non_string_registry_type_does_not_raise(self):
-        """Registry payloads are untrusted; a numeric type must not abort install."""
+        """Malformed explicit types continue through safe runtime inference."""
         self.assertEqual(
-            MCPClientAdapter._infer_registry_name({"name": "p", "registry_name": 5}), 5
+            MCPClientAdapter._infer_registry_name(
+                {"name": "p", "registry_name": 5, "runtime_hint": "docker"}
+            ),
+            "docker",
         )
 
     def test_oci_package_wins_container_selection_priority(self):
@@ -359,6 +366,29 @@ class TestOciLauncherAcrossTargets(unittest.TestCase):
         self.assertLess(args.index("-e"), image_at, "env flags must precede the image")
         self.assertGreater(args.index("--transport"), image_at, "container argv must follow it")
         self.assertEqual(args[-2:], ["--transport", "stdio"])
+
+    def test_package_arguments_follow_image_across_adapters(self):
+        package = dict(OCI_PACKAGE)
+        package["package_arguments"] = [
+            {"value": "--transport", "type": "positional"},
+            {"value": "stdio", "type": "positional"},
+        ]
+        for name, make_adapter in (
+            ("copilot", _make_copilot),
+            ("codex", _make_codex),
+            ("gemini", _make_gemini),
+            ("vscode", _make_vscode),
+        ):
+            with self.subTest(adapter=name):
+                rendered = make_adapter()._format_server_config(
+                    {"id": "s", "name": "s", "packages": [package]},
+                    runtime_vars=RUNTIME_VARS,
+                )
+                config = rendered[0] if isinstance(rendered, tuple) else rendered
+                args = config["args"]
+                image_at = args.index(OCI_IMAGE)
+                self.assertEqual(args.count(OCI_IMAGE), 1)
+                self.assertEqual(args[image_at + 1 :], ["--transport", "stdio"])
 
     def test_vscode_still_renders_a_docker_launcher_for_an_oci_package(self):
         """Guard: VS Code already keyed off runtime_hint, and must stay that way.
