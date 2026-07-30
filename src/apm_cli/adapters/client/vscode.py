@@ -289,8 +289,11 @@ class VSCodeClientAdapter(MCPClientAdapter):
             package = self._select_best_package(server_info["packages"])
             runtime_hint = package.get("runtime_hint", "") if package else ""
             registry_name = self._infer_registry_name(package) if package else ""
+            is_docker = runtime_hint == "docker" or registry_name == "docker"
             pkg_args = (
-                self._extract_package_args(package, runtime_vars=runtime_vars) if package else []
+                (self._extract_package_args(package, runtime_vars=runtime_vars) if package else [])
+                if not is_docker
+                else []
             )
 
             # Handle npm packages
@@ -307,14 +310,18 @@ class VSCodeClientAdapter(MCPClientAdapter):
                 }
 
             # Handle docker packages
-            elif runtime_hint == "docker" or registry_name == "docker":
+            elif is_docker:
                 runtime_args = self._extract_package_args(
                     {"runtime_arguments": package.get("runtime_arguments") or []},
                     runtime_vars=runtime_vars,
                 )
-                package_args = self._extract_package_args(
-                    {"package_arguments": package.get("package_arguments") or []},
-                    runtime_vars=runtime_vars,
+                package_args = (
+                    self._extract_package_args(
+                        {"package_arguments": package["package_arguments"]},
+                        runtime_vars=runtime_vars,
+                    )
+                    if package.get("package_arguments")
+                    else []
                 )
                 args = self._ensure_docker_image_arg(
                     runtime_args or ["run", "-i", "--rm"],
