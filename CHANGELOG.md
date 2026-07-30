@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `apm install --target vscode` no longer drops a container server's
-  registry-supplied run options, including bind mounts whose values APM had
-  just prompted for. The VS Code argument reader recognised only the legacy
-  `value_hint` spelling, so every MCP Registry v0.1 argument was skipped and
-  the launcher fell back to a bare `run -i --rm <image>`. (by @edenfunf, #2377)
+- `apm install --target vscode` now launches container servers with their full
+  registry-supplied run options, including bind mounts whose values APM just
+  collected. VS Code previously read only the legacy `value_hint` spelling, so
+  MCP Registry v0.1 arguments were skipped and the launcher fell back to a bare
+  `run -i --rm <image>`. (by @edenfunf, #2377)
 
 - MCP servers whose registry entry uses the MCP Registry v0.1 container type
   `oci` now render a `docker` launcher. They previously matched no launcher

@@ -312,12 +312,17 @@ class VSCodeClientAdapter(MCPClientAdapter):
 
             # Handle docker packages
             elif is_docker:
-                args = self._docker_run_args(package, runtime_vars) or (
-                    self._ensure_docker_image_arg(
+                args = self._docker_run_args(package, runtime_vars)
+                if args is None:
+                    if package.get("runtime_arguments") or package.get("package_arguments"):
+                        _rich_warning(
+                            "Could not resolve container run options for "
+                            f"'{package.get('name', '')}'; using the default launcher."
+                        )
+                    args = self._ensure_docker_image_arg(
                         ["run", "-i", "--rm"],
                         package.get("name"),
                     )
-                )
 
                 server_config = {"type": "stdio", "command": "docker", "args": args}
 
@@ -661,8 +666,6 @@ class VSCodeClientAdapter(MCPClientAdapter):
                     elif "value_hint" in arg and arg["value_hint"] and "is_required" not in arg:
                         # v0.1 format: plain value_hint entries without is_required
                         args.append(arg["value_hint"])
-                    elif arg.get("value"):
-                        args.append(arg["value"])
             if args:
                 return args
 

@@ -22,7 +22,11 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 from apm_cli.adapters.client.vscode import VSCodeClientAdapter
+
+pytestmark = pytest.mark.unit
 
 IMAGE = "myregistry.example.com/team/mcp-server:1.4.0"
 WORKDIR = "/home/dev/project"
@@ -433,12 +437,19 @@ class TestRenderedDockerLauncher(unittest.TestCase):
         self.assertNotEqual(config.get("args"), FALLBACK_ARGS)
 
     def test_unresolvable_package_keeps_the_previous_launcher(self):
-        config = _config(V01_VALUE_PACKAGE)
+        with patch("apm_cli.adapters.client.vscode._rich_warning") as warning:
+            config = _config(V01_VALUE_PACKAGE)
         self.assertEqual(config.get("args"), FALLBACK_ARGS)
+        warning.assert_called_once_with(
+            "Could not resolve container run options for "
+            f"'{IMAGE}'; using the default launcher."
+        )
 
     def test_package_without_runtime_args_keeps_the_synthesized_launcher(self):
-        config = _config({"name": IMAGE, "registry_name": "oci", "runtime_hint": "docker"})
+        with patch("apm_cli.adapters.client.vscode._rich_warning") as warning:
+            config = _config({"name": IMAGE, "registry_name": "oci", "runtime_hint": "docker"})
         self.assertEqual(config.get("args"), FALLBACK_ARGS)
+        warning.assert_not_called()
 
     def test_legacy_full_argv_in_package_arguments_stays_verbatim(self):
         """Some registry data authors the complete docker argv in
