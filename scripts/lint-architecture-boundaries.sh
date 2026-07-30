@@ -678,6 +678,31 @@ if [ "$deployment_owner_status" -ne 0 ]; then
     violations=$((violations + 1))
 fi
 
+echo "[*] AC19: marketplace tag-pattern authority"
+tag_pattern_owner="src/apm_cli/marketplace/tag_pattern.py"
+tag_pattern_parallel_hits=$(
+    grep -rEn --include='*.py' \
+        '["'\'']\{version\}["'\''][[:space:]]+(not[[:space:]]+)?in[[:space:]]+(pattern|tag_pattern)|\.(count)\(["'\'']\{version\}["'\'']\)' \
+        src/apm_cli/marketplace \
+        | grep -v "^${tag_pattern_owner}:" \
+        | grep -v 'architecture-authority-exempt:' \
+        || true
+)
+if ! grep -q '^def validate_tag_pattern(' "$tag_pattern_owner" \
+    || ! grep -A8 '^def _validate_tag_pattern(' \
+        src/apm_cli/marketplace/yml_schema.py \
+        | grep -q 'validate_tag_pattern(pattern, context=context)' \
+    || ! grep -A12 'raw_tp = source.get("tag_pattern")' \
+        src/apm_cli/marketplace/models.py \
+        | grep -q 'tag_pattern = validate_tag_pattern(' \
+    || ! grep -q 'tag_pattern = validate_tag_pattern(tag_pattern)' \
+        src/apm_cli/marketplace/version_resolver.py \
+    || [ -n "$tag_pattern_parallel_hits" ]; then
+    echo "[x] Marketplace tag patterns must route through marketplace/tag_pattern.py"
+    [ -n "$tag_pattern_parallel_hits" ] && echo "$tag_pattern_parallel_hits"
+    violations=$((violations + 1))
+fi
+
 if [ "$violations" -gt 0 ]; then
     echo "[x] $violations architecture boundary rule(s) failed"
     exit 1
