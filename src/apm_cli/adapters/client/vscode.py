@@ -317,7 +317,9 @@ class VSCodeClientAdapter(MCPClientAdapter):
                     if package.get("runtime_arguments") or package.get("package_arguments"):
                         _rich_warning(
                             "Could not resolve container run options for "
-                            f"'{package.get('name', '')}'; using the default launcher."
+                            f"'{package.get('name', '')}'; using the default launcher. "
+                            "Set the required registry runtime variables and rerun "
+                            "'apm install'."
                         )
                     args = self._ensure_docker_image_arg(
                         ["run", "-i", "--rm"],

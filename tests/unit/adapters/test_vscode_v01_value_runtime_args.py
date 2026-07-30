@@ -442,7 +442,8 @@ class TestRenderedDockerLauncher(unittest.TestCase):
         self.assertEqual(config.get("args"), FALLBACK_ARGS)
         warning.assert_called_once_with(
             "Could not resolve container run options for "
-            f"'{IMAGE}'; using the default launcher."
+            f"'{IMAGE}'; using the default launcher. "
+            "Set the required registry runtime variables and rerun 'apm install'."
         )
 
     def test_package_without_runtime_args_keeps_the_synthesized_launcher(self):
