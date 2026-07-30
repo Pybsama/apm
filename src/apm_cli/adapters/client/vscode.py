@@ -714,12 +714,19 @@ class VSCodeClientAdapter(MCPClientAdapter):
         if not package:
             return None
         run_options = cls._docker_arg_values(package.get("runtime_arguments"), runtime_vars)
+        if run_options is None:
+            return None
         package_args = cls._docker_arg_values(package.get("package_arguments"), runtime_vars)
         if package_args is None:
             return None
         if not run_options and package_args and package_args[0] == "run":
-            run_options = package_args
-            package_args = []
+            image_index = cls._docker_image_arg_index(package_args, package.get("name"))
+            if image_index is None:
+                run_options = package_args
+                package_args = []
+            else:
+                run_options = package_args[: image_index + 1]
+                package_args = package_args[image_index + 1 :]
         # The subcommand has to lead: `docker -v … run` is not a run invocation,
         # and there would be nothing for the flag normalizer to anchor on.
         if not run_options or run_options[0] != "run":
@@ -730,7 +737,9 @@ class VSCodeClientAdapter(MCPClientAdapter):
         # instead of describing the container's own arguments. Appending that
         # after the image would hand docker a second `run …` as the container
         # command, so treat it as a duplicate of what runtime_arguments said.
-        if (package_args and package_args[0] == "run") or (image and image in package_args):
+        if (package_args and package_args[0] == "run") or any(
+            cls._docker_image_references_match(argument, image) for argument in package_args
+        ):
             package_args = []
 
         # Reuse the shared normalizer so a registry template that omits -i/--rm

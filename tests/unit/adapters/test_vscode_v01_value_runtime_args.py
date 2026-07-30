@@ -183,6 +183,16 @@ class TestDockerRunArgs(unittest.TestCase):
             ["run", "-i", "--rm", "-e", "TOK", IMAGE],
         )
 
+    def test_pinned_image_in_package_arguments_is_not_appended_as_container_argv(self):
+        package = _docker_package({"type": "positional", "value": "run"})
+        package["package_arguments"] = [
+            {"type": "positional", "value": "myregistry.example.com/team/mcp-server:latest"}
+        ]
+        self.assertEqual(
+            VSCodeClientAdapter._docker_run_args(package),
+            ["run", "-i", "--rm", IMAGE],
+        )
+
     def test_named_entries_keep_their_flag(self):
         """A named argument contributes the flag as well as its value."""
         package = _docker_package(
@@ -336,6 +346,21 @@ class TestDockerRunArgs(unittest.TestCase):
         ]
         self.assertIsNone(VSCodeClientAdapter._docker_run_args(package))
 
+    def test_required_runtime_argument_cannot_be_replaced_by_legacy_package_argv(self):
+        package = _docker_package(
+            {"value": "run", "type": "positional"},
+            {
+                "value": "--mount={requiredPath}",
+                "type": "positional",
+                "variables": {"requiredPath": {"description": "required"}},
+            },
+        )
+        package["package_arguments"] = [
+            {"value": "run", "type": "positional"},
+            {"value": IMAGE, "type": "positional"},
+        ]
+        self.assertIsNone(VSCodeClientAdapter._docker_run_args(package))
+
     # -- declining cases: the caller keeps its previous launcher --------------
 
     def test_declines_when_the_run_verb_is_absent(self):
@@ -479,14 +504,27 @@ class TestRenderedDockerLauncher(unittest.TestCase):
                 "runtime_hint": "docker",
                 "package_arguments": [
                     {"value": "run", "type": "positional"},
-                    {"value": "-i", "type": "positional"},
-                    {"value": "--rm", "type": "positional"},
                     {"value": "--read-only", "type": "positional"},
                     {"value": IMAGE, "type": "positional"},
+                    {"value": "--rm", "type": "positional"},
+                    {"value": "--transport", "type": "positional"},
+                    {"value": "stdio", "type": "positional"},
                 ],
             }
         )
-        self.assertEqual(config.get("args"), ["run", "-i", "--rm", "--read-only", IMAGE])
+        self.assertEqual(
+            config.get("args"),
+            [
+                "run",
+                "-i",
+                "--rm",
+                "--read-only",
+                IMAGE,
+                "--rm",
+                "--transport",
+                "stdio",
+            ],
+        )
 
 
 if __name__ == "__main__":

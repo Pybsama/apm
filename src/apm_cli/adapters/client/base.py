@@ -44,15 +44,30 @@ _DOCKER_RUN_OPTIONS_WITH_VALUES = frozenset(
         "--add-host",
         "--annotation",
         "--attach",
+        "--blkio-weight",
+        "--blkio-weight-device",
         "--cap-add",
         "--cap-drop",
         "--cgroup-parent",
         "--cgroupns",
         "--cidfile",
+        "--cpu-count",
+        "--cpu-percent",
+        "--cpu-period",
+        "--cpu-quota",
+        "--cpu-rt-period",
+        "--cpu-rt-runtime",
+        "--cpu-shares",
         "--cpus",
         "--cpuset-cpus",
         "--cpuset-mems",
+        "--detach-keys",
         "--device",
+        "--device-cgroup-rule",
+        "--device-read-bps",
+        "--device-read-iops",
+        "--device-write-bps",
+        "--device-write-iops",
         "--dns",
         "--dns-option",
         "--dns-search",
@@ -64,23 +79,40 @@ _DOCKER_RUN_OPTIONS_WITH_VALUES = frozenset(
         "--gpus",
         "--group-add",
         "--health-cmd",
+        "--health-interval",
+        "--health-retries",
+        "--health-start-interval",
+        "--health-start-period",
+        "--health-timeout",
         "--hostname",
+        "--io-maxbandwidth",
+        "--io-maxiops",
+        "--ip",
+        "--ip6",
         "--ipc",
         "--isolation",
+        "--kernel-memory",
         "--label",
         "--label-file",
         "--link",
+        "--link-local-ip",
         "--log-driver",
         "--log-opt",
         "--mac-address",
         "--memory",
+        "--memory-reservation",
+        "--memory-swap",
+        "--memory-swappiness",
         "--mount",
         "--name",
         "--network",
         "--network-alias",
+        "--oom-score-adj",
         "--pid",
+        "--pids-limit",
         "--platform",
         "--publish",
+        "--pull",
         "--restart",
         "--runtime",
         "--security-opt",
@@ -437,7 +469,55 @@ class MCPClientAdapter(ABC):
         return ""
 
     @staticmethod
-    def _ensure_docker_image_arg(runtime_args, image):
+    def _docker_image_references_match(left: Any, right: Any) -> bool:
+        """Return whether two strings name the same image repository."""
+        return (
+            isinstance(left, str)
+            and isinstance(right, str)
+            and _docker_image_repository(left) == _docker_image_repository(right)
+        )
+
+    @classmethod
+    def _docker_image_arg_index(
+        cls,
+        runtime_args: list[Any],
+        image: str | None,
+    ) -> int | None:
+        """Return the matching Docker image operand index, or None."""
+        if not image or not runtime_args or runtime_args[0] != "run":
+            return None
+        index = 1
+        while index < len(runtime_args):
+            argument = runtime_args[index]
+            if argument == "--":
+                index += 1
+                break
+            if isinstance(argument, str) and argument.startswith("--"):
+                option = argument.split("=", 1)[0]
+                index += (
+                    2 if "=" not in argument and option in _DOCKER_RUN_OPTIONS_WITH_VALUES else 1
+                )
+                continue
+            if isinstance(argument, str) and argument.startswith("-") and argument != "-":
+                option = argument[:2]
+                index += (
+                    2 if len(argument) == 2 and option in _DOCKER_RUN_OPTIONS_WITH_VALUES else 1
+                )
+                continue
+            break
+        if index >= len(runtime_args):
+            return None
+        candidate = runtime_args[index]
+        if cls._docker_image_references_match(candidate, image):
+            return index
+        return None
+
+    @classmethod
+    def _ensure_docker_image_arg(
+        cls,
+        runtime_args: list[Any],
+        image: str | None,
+    ) -> list[Any]:
         """Return *runtime_args* with the container image operand present.
 
         ``docker run [OPTIONS] IMAGE`` needs the image after the run options.
@@ -464,22 +544,7 @@ class MCPClientAdapter(ABC):
         runtime_args = list(runtime_args)
         if not image:
             return runtime_args
-        # Only the trailing entry can be the image: everything before it is a
-        # run option or an option's value. Scanning the whole list instead lets
-        # a value like `--name mcp-server` masquerade as the image and suppress
-        # the append, rendering the very image-less `docker run` this guards.
-        tail = runtime_args[-1] if runtime_args else None
-        previous = runtime_args[-2] if len(runtime_args) > 1 else None
-        tail_is_option_value = (
-            isinstance(previous, str)
-            and "=" not in previous
-            and previous in _DOCKER_RUN_OPTIONS_WITH_VALUES
-        )
-        if (
-            not tail_is_option_value
-            and isinstance(tail, str)
-            and _docker_image_repository(tail) == _docker_image_repository(image)
-        ):
+        if cls._docker_image_arg_index(runtime_args, image) is not None:
             return runtime_args
         runtime_args.append(image)
         return runtime_args
