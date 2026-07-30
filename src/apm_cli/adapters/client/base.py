@@ -323,21 +323,21 @@ class MCPClientAdapter(ABC):
             str: Inferred registry name (e.g. "npm", "pypi", "docker") or "".
             Spec spellings that name the same registry as an APM launcher
             branch are canonicalized via ``_REGISTRY_TYPE_ALIASES`` (v0.1
-            ``oci`` -> ``docker``). Malformed explicit values are ignored so
-            runtime and image-name inference can select a safe launcher.
+            ``oci`` -> ``docker``). Malformed explicit values fail closed
+            before any package-manager launcher is selected.
         """
         if not package:
             return ""
 
         explicit = package.get("registry_name", "")
         if explicit:
-            # Registry payloads are untrusted. Ignore malformed explicit values
-            # and continue through the runtime/name inference below rather than
-            # returning an opaque value that misses every launcher branch and
-            # reaches the generic npx fallback.
-            if isinstance(explicit, str):
-                canonical = explicit.strip().lower()
-                return _REGISTRY_TYPE_ALIASES.get(canonical, canonical)
+            # Registry payloads are untrusted. A malformed explicit value must
+            # fail closed rather than miss every launcher branch and reach the
+            # generic npx fallback with an untrusted package name.
+            if not isinstance(explicit, str):
+                raise ValueError("MCP package registry_name must be a string")
+            canonical = explicit.strip().lower()
+            return _REGISTRY_TYPE_ALIASES.get(canonical, canonical)
 
         name = package.get("name", "")
         runtime_hint = package.get("runtime_hint", "")

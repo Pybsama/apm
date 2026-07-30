@@ -156,14 +156,12 @@ class TestInferRegistryNameOci(unittest.TestCase):
             "docker",
         )
 
-    def test_non_string_registry_type_does_not_raise(self):
-        """Malformed explicit types continue through safe runtime inference."""
-        self.assertEqual(
+    def test_non_string_registry_type_fails_closed_before_launcher_dispatch(self):
+        """Malformed explicit types must never reach the generic npx fallback."""
+        with self.assertRaisesRegex(ValueError, "registry_name must be a string"):
             MCPClientAdapter._infer_registry_name(
                 {"name": "p", "registry_name": 5, "runtime_hint": "docker"}
-            ),
-            "docker",
-        )
+            )
 
     def test_oci_package_wins_container_selection_priority(self):
         """_select_best_package ranks containers above pypi; oci must qualify."""
