@@ -212,19 +212,19 @@ package's directory, not the project root.
 |-------|----------|-------------|
 | `name` | REQUIRED | Plugin identifier within the marketplace (`^[a-zA-Z0-9._-]+$`). |
 | `marketplace` | REQUIRED | Registered marketplace name (`^[a-zA-Z0-9._-]+$`). |
-| `version` | OPTIONAL | Semver range or exact version (e.g. `~2.1.0`, `^2.0`, `>=1.4`, `2.1.0`). Resolved against git tags using the pattern declared by the marketplace's `tag_pattern` field (emitted by `apm pack` from `build.tagPattern`; defaults to `v{version}`). When `tag_pattern` is absent from `marketplace.json` (older files), the consumer falls back to `{name}--v{version}`. |
+| `version` | OPTIONAL | Semver range or exact version (e.g. `~2.1.0`, `^2.0`, `>=1.4`, `2.1.0`). Resolved against git tags using the publisher's effective pattern: `packages[].tag_pattern`, then `marketplace.build.tagPattern`. Older metadata without `source.tag_pattern` uses the legacy `{name}--v{version}` fallback. |
 
 During resolution, marketplace entries are looked up in the marketplace's
 `marketplace.json` and replaced with concrete git coordinates. When `version`
 is a semver range or bare version number, the resolver lists git tags
-using the pattern declared in the marketplace's `tag_pattern` field (populated
-by `apm pack` from the producer's `build.tagPattern`; default `v{version}`).
-APM filters by the constraint and picks the highest matching tag. Old
-`marketplace.json` files that omit `tag_pattern` fall back to the legacy
-consumer default `{name}--v{version}`. Raw git refs (e.g. `v2.0.0`,
-`main`) bypass tag resolution and override the source ref directly. The
-lockfile records the resolved ref, not the marketplace placeholder. Unknown
-keys in a marketplace entry are rejected.
+using the `source.tag_pattern` emitted by `apm pack`. The package-level
+`tag_pattern` overrides `marketplace.build.tagPattern`. APM filters by the
+constraint and picks the highest matching tag. Old `marketplace.json` files
+that omit `source.tag_pattern` fall back to `{name}--v{version}`. Patterns
+must contain exactly one `{version}` placeholder, and a no-match does not
+silently become a raw ref. Raw git refs (e.g. `v2.0.0`, `main`) bypass tag
+resolution. The lockfile records the resolved ref, not the marketplace
+placeholder. Unknown keys in a marketplace entry are rejected.
 
 Producer-emitted `source: url` and `source: git-subdir` objects resolve
 through the same Git dependency parser as direct object-form dependencies.

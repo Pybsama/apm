@@ -275,6 +275,27 @@ def _fail_on_resolution_errors(ctx: InstallContext, dependency_graph) -> None:
     raise RuntimeError(f"Dependency resolution failed: {joined_errors}")
 
 
+def _attach_resolver_marketplace_provenance(
+    ctx: InstallContext,
+    resolver,
+) -> None:
+    """Carry manifest-resolved marketplace identity into lockfile assembly."""
+    if not resolver.marketplace_provenance:
+        return
+    if ctx.marketplace_provenance is None:
+        ctx.marketplace_provenance = {}
+    ctx.marketplace_provenance.update(resolver.marketplace_provenance)
+
+
+def _build_dependency_graph(ctx: InstallContext, resolver):
+    """Resolve the manifest graph and retain its marketplace provenance."""
+    manifest_anchor = ctx.source_root if ctx.source_root != ctx.project_root else ctx.apm_dir
+    dependency_graph = resolver.resolve_dependencies(manifest_anchor)
+    ctx.dependency_graph = dependency_graph
+    _attach_resolver_marketplace_provenance(ctx, resolver)
+    return dependency_graph
+
+
 def _resolve_dependencies(ctx: InstallContext, staging_session: ResolutionStagingSession) -> None:
     """Resolve dependencies and populate the resolution fields on ``ctx``."""
     import threading as _threading
@@ -676,9 +697,7 @@ def _resolve_dependencies(ctx: InstallContext, staging_session: ResolutionStagin
     # ``apm_modules_dir`` is already pinned on the resolver above, so
     # this arg selects only where ``apm.yml`` is read -- never where
     # ``apm_modules/`` is written.
-    manifest_anchor = ctx.source_root if ctx.source_root != ctx.project_root else ctx.apm_dir
-    dependency_graph = resolver.resolve_dependencies(manifest_anchor)
-    ctx.dependency_graph = dependency_graph
+    dependency_graph = _build_dependency_graph(ctx, resolver)
     _fail_on_resolution_errors(ctx, dependency_graph)
 
     # Fold remote-parent local_path rejections into ``callback_failures`` so
