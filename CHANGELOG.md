@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Copilot hooks now normalize session lifecycle aliases to documented `sessionStart` and `agentStop` keys while preserving Claude's `SessionStart` and `Stop` output -- by @SaulMoro (#2405)
+- Copilot hooks now normalize session lifecycle aliases to documented `sessionStart` and `agentStop` keys while preserving Claude's `SessionStart` and `Stop` output (reported by @SaulMoro, closes #2337, #2405)
 - `apm install --dry-run` no longer lists the project's own `includes: auto`
   self-managed files under "Files that would be removed"; the orphan preview
   now excludes the synthesized lockfile self-entry, matching the real install
