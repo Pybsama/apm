@@ -208,6 +208,10 @@ launcher automatically. Docker run options stay before the image and
 package arguments stay after it. Docker must be available when the
 harness starts the server; no manual launcher override is required.
 
+For non-container packages, install preserves typed v0.1 registry
+arguments and legacy `value_hint` arguments while writing the package
+identifier exactly once.
+
 ## Runtime management (experimental)
 
 | Command | Purpose | Key flags |

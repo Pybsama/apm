@@ -292,12 +292,24 @@ class MCPServerOperations:
                                         continue
                                     for var_name, var_info in variables.items():
                                         if isinstance(var_info, dict):
+                                            configured_value = var_info.get("value")
+                                            if configured_value in (None, ""):
+                                                configured_value = var_info.get(
+                                                    "default",
+                                                    "",
+                                                )
                                             collected_runtime_vars[var_name] = {
                                                 "description": var_info.get("description", ""),
                                                 "required": var_info.get(
                                                     "is_required",
                                                     var_info.get("isRequired", True),
                                                 ),
+                                                "value": configured_value,
+                                                "secret": var_info.get(
+                                                    "is_secret",
+                                                    var_info.get("isSecret", False),
+                                                )
+                                                is True,
                                             }
 
             except Exception:  # noqa: S112
@@ -419,9 +431,9 @@ class MCPServerOperations:
 
                 if existing_value:
                     env_vars[var_name] = existing_value
+                elif default_value:
+                    env_vars[var_name] = default_value
                 elif not required:
-                    if default_value:
-                        env_vars[var_name] = default_value
                     continue
                 else:  # noqa: PLR5501
                     # Provide sensible defaults for known variables
@@ -467,13 +479,13 @@ class MCPServerOperations:
                 if existing_value:
                     console.print(f"  [+] {var_name}: [dim]using existing value[/dim]")
                     env_vars[var_name] = existing_value
+                elif default_value:
+                    env_vars[var_name] = default_value
                 elif not required:
-                    if default_value:
-                        env_vars[var_name] = default_value
                     continue
                 else:
                     # Determine if this looks like a password/secret
-                    is_sensitive = any(
+                    is_sensitive = var_info.get("secret", False) is True or any(
                         keyword in var_name.lower()
                         for keyword in ["password", "secret", "key", "token", "api"]
                     )
@@ -505,9 +517,9 @@ class MCPServerOperations:
                 if existing_value:
                     click.echo(f"  [+] {var_name}: using existing value")
                     env_vars[var_name] = existing_value
+                elif default_value:
+                    env_vars[var_name] = default_value
                 elif not required:
-                    if default_value:
-                        env_vars[var_name] = default_value
                     continue
                 else:
                     prompt_text = f"  {var_name}"
@@ -515,7 +527,7 @@ class MCPServerOperations:
                         prompt_text += f" ({description})"
 
                     # Simple input for fallback
-                    is_sensitive = any(
+                    is_sensitive = var_info.get("secret", False) is True or any(
                         keyword in var_name.lower()
                         for keyword in ["password", "secret", "key", "token", "api"]
                     )

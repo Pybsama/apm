@@ -1441,3 +1441,86 @@ def test_mcp_container_launcher_has_one_canonical_owner() -> None:
 
     guard = (root / "scripts/lint-architecture-boundaries.sh").read_text(encoding="utf-8")
     assert "MCP container launcher decisions must route through MCPClientAdapter" in guard
+
+
+def test_mcp_noncontainer_launcher_has_one_canonical_owner() -> None:
+    """Typed package argv construction must stay shared across adapters."""
+    root = Path(__file__).parents[2]
+    owner = root / "src/apm_cli/adapters/client/base.py"
+    consumers = (
+        root / "src/apm_cli/adapters/client/copilot.py",
+        root / "src/apm_cli/adapters/client/vscode.py",
+    )
+    sources = {path: ast.parse(path.read_text(encoding="utf-8")) for path in (owner, *consumers)}
+    definitions = [
+        node
+        for tree in sources.values()
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "_build_non_container_launcher_argv"
+    ]
+
+    assert len(definitions) == 1
+    for consumer in consumers:
+        assert any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "_build_non_container_launcher_argv"
+            for node in ast.walk(sources[consumer])
+        )
+        assert not any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "_extract_package_args"
+            for node in ast.walk(sources[consumer])
+        )
+
+    owner_table = (root / ".github/instructions/architecture.instructions.md").read_text(
+        encoding="utf-8"
+    )
+    assert "| MCP non-container package launcher argv shape |" in owner_table
+    guard = (root / "scripts/lint-architecture-boundaries.sh").read_text(encoding="utf-8")
+    assert "MCP non-container launcher argv must route through MCPClientAdapter" in guard
+
+
+def test_mcp_noncontainer_launcher_guard_rejects_retired_extractor(
+    tmp_path: Path,
+) -> None:
+    """AC21 rejects restoring VS Code's value_hint-only production path."""
+    root = Path(__file__).parents[2]
+    sandbox = tmp_path / "repo"
+    shutil.copytree(
+        root,
+        sandbox,
+        ignore=shutil.ignore_patterns(
+            ".git",
+            ".venv",
+            ".pytest_cache",
+            "__pycache__",
+            "build",
+            "dist",
+            "node_modules",
+        ),
+    )
+    vscode_path = sandbox / "src/apm_cli/adapters/client/vscode.py"
+    source = vscode_path.read_text(encoding="utf-8")
+    vscode_path.write_text(
+        source.replace(
+            "self._build_non_container_launcher_argv(",
+            "self._extract_package_args(",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ("bash", "scripts/lint-architecture-boundaries.sh"),
+        cwd=sandbox,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=300,
+    )
+
+    assert result.returncode == 1
+    assert "MCP non-container launcher argv must route through MCPClientAdapter" in result.stdout

@@ -80,11 +80,19 @@ path = "tests/integration/test_oci_mcp_lifecycle_contract.py"
 marker = "e2e"
 
 [[modules]]
+path = "tests/integration/test_noncontainer_mcp_lifecycle_contract.py"
+marker = "e2e"
+
+[[modules]]
 path = "tests/unit/adapters/test_oci_docker_launcher.py"
 marker = "unit"
 
 [[modules]]
 path = "tests/unit/adapters/test_vscode_v01_value_runtime_args.py"
+marker = "unit"
+
+[[modules]]
+path = "tests/unit/adapters/test_noncontainer_launcher_args.py"
 marker = "unit"
 
 [[modules]]

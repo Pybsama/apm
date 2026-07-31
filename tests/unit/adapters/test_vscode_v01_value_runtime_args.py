@@ -5,16 +5,13 @@ Issue #2377: ``apm install --target vscode`` prompted for a Docker server's
 launcher with every registry-supplied run option missing -- including the bind
 mount the user had just filled in.
 
-``_extract_package_args`` walked ``runtime_arguments`` looking only at
-``value_hint``. The v0.1 spec spells the payload ``value`` (beside a ``type``),
-so every entry was skipped and the docker branch fell back to a synthesized
-``run -i --rm <image>``.
+The pre-#2387 VS Code extractor walked ``runtime_arguments`` looking only at
+``value_hint``. The v0.1 spec spells typed payloads ``value``, so every container
+entry was skipped and the adapter fell back to ``run -i --rm <image>``.
 
-That extractor is shared with the npm, pypi, and generic branches, which read
-an empty extraction as "synthesize the command from the package name" -- so it
-cannot simply learn the v0.1 shape without stripping the package name out of
-those launchers. Container arguments are assembled by ``_docker_run_args``
-instead, and the tests below pin both halves of that contract.
+Container arguments remain assembled by ``_docker_run_args`` because their
+image-placement rules differ from the canonical non-container package argv
+builder. The tests below pin that dedicated Docker contract.
 """
 
 from __future__ import annotations
@@ -426,60 +423,6 @@ class TestDockerRunArgs(unittest.TestCase):
     def test_non_dict_entries_are_ignored(self):
         package = _docker_package({"value": "run", "type": "positional"}, "not-a-dict")
         self.assertEqual(VSCodeClientAdapter._docker_run_args(package), FALLBACK_ARGS)
-
-
-# ---------------------------------------------------------------------------
-# The shared extractor must stay untouched
-# ---------------------------------------------------------------------------
-
-
-class TestSharedExtractorUnaffected(unittest.TestCase):
-    """Other registry branches read an empty extraction as "use the name"."""
-
-    def test_extractor_still_ignores_value_shaped_runtime_args(self):
-        self.assertEqual(
-            VSCodeClientAdapter._extract_package_args(V01_VALUE_PACKAGE, runtime_vars=RUNTIME_VARS),
-            [],
-        )
-
-    def test_pypi_launcher_keeps_the_package_name(self):
-        config = _config(
-            {
-                "name": "mcp-server-fetch",
-                "registry_name": "pypi",
-                "runtime_hint": "uvx",
-                "runtime_arguments": [
-                    {"value": "--python", "type": "named"},
-                    {"value": "3.12", "type": "positional"},
-                ],
-            }
-        )
-        self.assertEqual(config.get("command"), "uvx")
-        self.assertEqual(config.get("args"), ["mcp-server-fetch"])
-
-    def test_generic_runtime_launcher_keeps_the_package_name(self):
-        config = _config(
-            {
-                "name": "Azure.Mcp",
-                "registry_name": "nuget",
-                "runtime_hint": "dnx",
-                "runtime_arguments": [{"value": "--yes"}],
-            }
-        )
-        self.assertEqual(config.get("command"), "dnx")
-        self.assertEqual(config.get("args"), ["Azure.Mcp"])
-
-    def test_npm_launcher_keeps_the_package_name(self):
-        config = _config(
-            {
-                "name": "@scope/mcp",
-                "registry_name": "npm",
-                "runtime_hint": "npx",
-                "runtime_arguments": [{"value": "-y"}, {"value": "@scope/mcp"}],
-            }
-        )
-        self.assertEqual(config.get("command"), "npx")
-        self.assertEqual(config.get("args"), ["-y", "@scope/mcp"])
 
 
 # ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 import os
 import re
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -184,6 +185,14 @@ def _docker_image_repository(reference: str) -> str:
 # (NOT guarded by "key absent from config"), so it also closes paths that do not
 # pre-set the key. Security boundary for PR #1765 / issue #1670.
 _EXTRA_DENYLIST = _RESERVED_EXTRA_KEYS | frozenset({"http_headers"})
+
+
+@dataclass(frozen=True)
+class _MCPLauncherArgumentGroup:
+    """One atomic registry argument and its rendered argv values."""
+
+    kind: str
+    values: tuple[str, ...]
 
 
 def registry_field_is_required(field: dict[str, Any]) -> bool:
@@ -472,6 +481,273 @@ class MCPClientAdapter(ABC):
             return "nuget"
 
         return ""
+
+    def _parse_non_container_argument_groups(
+        self,
+        arguments: object,
+        *,
+        resolved_env: dict[str, str] | None = None,
+        runtime_vars: dict[str, object] | None = None,
+        runtime_variable_fallbacks: dict[str, str] | None = None,
+        secret_variable_fallbacks: dict[str, str] | None = None,
+    ) -> list[_MCPLauncherArgumentGroup]:
+        """Parse registry arguments without losing named-group boundaries.
+
+        Typed v0.1 entries read ``value`` while untyped legacy entries read
+        ``value_hint``. Named arguments remain one atomic group so package
+        identity matching cannot confuse a flag value with the package operand.
+        Optional groups with unresolved variables are omitted as a whole;
+        malformed or unresolved required entries fail closed.
+
+        Args:
+            arguments: Raw ``runtime_arguments`` or ``package_arguments`` value.
+            resolved_env: Target-native environment placeholder mapping.
+            runtime_vars: Values collected for registry argument variables.
+            runtime_variable_fallbacks: Target-native fallbacks for variables
+                such as VS Code's ``workspaceFolder``.
+            secret_variable_fallbacks: Target-native indirections for secret
+                values that must not be written literally.
+
+        Returns:
+            Ordered atomic launcher argument groups.
+
+        Raises:
+            ValueError: If registry argument metadata is malformed or a required
+                variable cannot be resolved.
+        """
+        if arguments is None:
+            return []
+        if not isinstance(arguments, list):
+            raise ValueError("MCP package arguments must be a list")
+
+        groups: list[_MCPLauncherArgumentGroup] = []
+        for entry in arguments:
+            if not isinstance(entry, dict):
+                raise ValueError("MCP package argument entries must be objects")
+
+            raw_type = entry.get("type", "")
+            if not isinstance(raw_type, str):
+                raise ValueError("MCP package argument type must be a string")
+            arg_type = raw_type.strip().lower()
+            if arg_type not in ("", "positional", "named"):
+                raise ValueError("MCP package argument type must be 'positional' or 'named'")
+
+            required_marker = entry.get(
+                "is_required",
+                entry.get("isRequired", entry.get("required")),
+            )
+            if required_marker is not None and not isinstance(required_marker, bool):
+                raise ValueError("MCP package argument required marker must be a boolean")
+            required = True if required_marker is None else required_marker
+
+            variables = entry.get("variables")
+            if variables is not None and not isinstance(variables, dict):
+                raise ValueError("MCP package argument variables must be an object")
+            if not required and "variables" not in entry:
+                continue
+
+            if arg_type:
+                raw_value = entry.get("value", entry.get("default"))
+            else:
+                raw_value = entry.get(
+                    "value_hint",
+                    entry.get("value", entry.get("default")),
+                )
+
+            name = entry.get("name")
+            if arg_type == "named" and not isinstance(name, str):
+                raise ValueError("MCP package argument name must be a string")
+            if arg_type == "named" and not name:
+                raise ValueError("MCP package argument name must not be empty")
+
+            if raw_value is None or raw_value == "":
+                if arg_type == "named" and name:
+                    if required:
+                        groups.append(_MCPLauncherArgumentGroup("named", (name,)))
+                elif required:
+                    raise ValueError("MCP package argument required positional value is missing")
+                continue
+            if not isinstance(raw_value, str):
+                raise ValueError("MCP package argument value must be a string")
+
+            rendered = self._resolve_non_container_argument_value(
+                raw_value,
+                variables=variables or {},
+                resolved_env=resolved_env or {},
+                runtime_vars=runtime_vars or {},
+                runtime_variable_fallbacks=runtime_variable_fallbacks or {},
+                secret_variable_fallbacks=secret_variable_fallbacks or {},
+            )
+            if rendered is None:
+                if required:
+                    raise ValueError("Could not resolve required MCP package argument variable")
+                continue
+
+            if arg_type == "named" and name:
+                groups.append(_MCPLauncherArgumentGroup("named", (name, rendered)))
+            else:
+                kind = "positional" if arg_type == "positional" else "legacy"
+                groups.append(_MCPLauncherArgumentGroup(kind, (rendered,)))
+        return groups
+
+    def _resolve_non_container_argument_value(
+        self,
+        template: str,
+        *,
+        variables: dict[object, object],
+        resolved_env: dict[str, str],
+        runtime_vars: dict[str, object],
+        runtime_variable_fallbacks: dict[str, str],
+        secret_variable_fallbacks: dict[str, str],
+    ) -> str | None:
+        """Resolve one argument value, returning None when a variable is absent."""
+        for variable_name, variable_info in variables.items():
+            if not isinstance(variable_name, str):
+                raise ValueError("MCP package argument variable names must be strings")
+            if not isinstance(variable_info, dict):
+                raise ValueError("MCP package argument variable metadata must be an object")
+            placeholder = f"{{{variable_name}}}"
+            if placeholder not in template:
+                continue
+            secret_marker = variable_info.get(
+                "isSecret",
+                variable_info.get("is_secret", False),
+            )
+            if not isinstance(secret_marker, bool):
+                raise ValueError("MCP package argument variable isSecret marker must be a boolean")
+            if secret_marker:
+                replacement = secret_variable_fallbacks.get(variable_name)
+                if replacement is None and self._supports_runtime_env_substitution:
+                    replacement = self._format_runtime_env_placeholder(variable_name)
+            else:
+                supplied = runtime_vars.get(variable_name)
+                if supplied is not None and str(supplied) != "":
+                    replacement = str(supplied)
+                else:
+                    configured = variable_info.get(
+                        "value",
+                        variable_info.get("default"),
+                    )
+                    if configured is not None and not isinstance(configured, str):
+                        raise ValueError("MCP package argument variable value must be a string")
+                    replacement = configured or runtime_variable_fallbacks.get(variable_name)
+            if replacement is None:
+                return None
+            template = template.replace(placeholder, replacement)
+
+        string_runtime_vars = {
+            key: str(value) for key, value in runtime_vars.items() if value is not None
+        }
+        return self._resolve_variable_placeholders(
+            template,
+            resolved_env,
+            string_runtime_vars,
+        )
+
+    @staticmethod
+    def _processed_non_container_argument_groups(
+        arguments: list[object],
+    ) -> list[_MCPLauncherArgumentGroup]:
+        """Wrap already-processed compatibility inputs as positional groups."""
+        return [_MCPLauncherArgumentGroup("legacy", (str(argument),)) for argument in arguments]
+
+    @staticmethod
+    def _flatten_non_container_argument_groups(
+        groups: list[_MCPLauncherArgumentGroup],
+    ) -> list[str]:
+        """Flatten ordered atomic groups without changing their contents."""
+        return [value for group in groups for value in group.values]
+
+    @staticmethod
+    def _build_non_container_launcher_argv(
+        package_name: str,
+        runtime_groups: list[_MCPLauncherArgumentGroup],
+        package_groups: list[_MCPLauncherArgumentGroup],
+        *,
+        launcher_prefix: tuple[str, ...] = (),
+    ) -> list[str]:
+        """Merge one package identity into a typed non-container launcher argv.
+
+        Package detection is semantic and type-aware. The first non-option
+        typed positional group can satisfy package identity; named groups are
+        atomic and their values never count. Untyped legacy runtime argv are
+        searched for the identifier because their historical shape carries no
+        stronger type signal. Package groups never satisfy launcher identity;
+        they are arguments to the package binary. This preserves a legitimate
+        flag value equal to the package name while avoiding duplicate package
+        operands.
+
+        Args:
+            package_name: Registry package identifier.
+            runtime_groups: Ordered runtime argument groups.
+            package_groups: Ordered package argument groups appended last.
+            launcher_prefix: Default launcher operands preceding the package,
+                such as npm's ``-y``.
+
+        Returns:
+            Complete ordered launcher argv.
+
+        Raises:
+            ValueError: If the package identifier is missing or malformed.
+        """
+        if not isinstance(package_name, str) or not package_name:
+            raise ValueError("MCP package name must be a non-empty string")
+
+        identity_present = any(
+            group.kind == "legacy"
+            and len(group.values) == 1
+            and MCPClientAdapter._package_identity_matches(
+                group.values[0],
+                package_name,
+            )
+            for group in runtime_groups
+        )
+        for group in runtime_groups:
+            if identity_present:
+                break
+            if group.kind != "positional" or len(group.values) != 1:
+                continue
+            candidate = group.values[0]
+            if candidate in launcher_prefix or candidate.startswith("-"):
+                continue
+            if MCPClientAdapter._package_identity_matches(candidate, package_name):
+                identity_present = True
+            break
+
+        leading_prefix_groups = 0
+        for expected, group in zip(launcher_prefix, runtime_groups, strict=False):
+            if group.kind == "named" or group.values != (expected,):
+                break
+            leading_prefix_groups += 1
+        has_leading_prefix = leading_prefix_groups == len(launcher_prefix)
+
+        runtime_values = MCPClientAdapter._flatten_non_container_argument_groups(runtime_groups)
+        package_values = MCPClientAdapter._flatten_non_container_argument_groups(package_groups)
+        if identity_present:
+            if launcher_prefix and not has_leading_prefix:
+                runtime_values = [*launcher_prefix, *runtime_values]
+        elif launcher_prefix and has_leading_prefix:
+            insertion = len(launcher_prefix)
+            runtime_values = [
+                *runtime_values[:insertion],
+                package_name,
+                *runtime_values[insertion:],
+            ]
+        else:
+            runtime_values = [
+                *launcher_prefix,
+                package_name,
+                *runtime_values,
+            ]
+        return [*runtime_values, *package_values]
+
+    @staticmethod
+    def _package_identity_matches(candidate: str, package_name: str) -> bool:
+        """Return whether a positional operand identifies the package."""
+        if candidate == package_name:
+            return True
+        version_prefix = f"{package_name}@"
+        return candidate.startswith(version_prefix) and len(candidate) > len(version_prefix)
 
     @staticmethod
     def _docker_image_references_match(left: Any, right: Any) -> bool:
@@ -963,8 +1239,9 @@ class MCPClientAdapter(ABC):
             return server_url.split("/")[-1]
         return server_url
 
-    @staticmethod
+    @classmethod
     def _apply_pypi_homebrew_generic_config(
+        cls,
         config: dict,
         registry_name: str,
         package_name: str,
@@ -972,6 +1249,8 @@ class MCPClientAdapter(ABC):
         processed_runtime_args: list,
         processed_package_args: list,
         resolved_env: dict,
+        runtime_argument_groups: list[_MCPLauncherArgumentGroup] | None = None,
+        package_argument_groups: list[_MCPLauncherArgumentGroup] | None = None,
     ) -> None:
         """Apply pypi / homebrew / generic (uvx / brew / npx) run config to *config*.
 
@@ -990,19 +1269,40 @@ class MCPClientAdapter(ABC):
                 after the package name.
             resolved_env: Pre-resolved environment variables dict; an empty
                 dict is omitted.
+            runtime_argument_groups: Optional typed runtime groups. Compatibility
+                callers may omit them and supply processed strings only.
+            package_argument_groups: Optional typed package groups appended
+                after runtime groups.
         """
+        runtime_groups = runtime_argument_groups
+        if runtime_groups is None:
+            runtime_groups = cls._processed_non_container_argument_groups(processed_runtime_args)
+        package_groups = package_argument_groups
+        if package_groups is None:
+            package_groups = cls._processed_non_container_argument_groups(processed_package_args)
+
         if registry_name == "pypi":
             launcher = runtime_hint or "uvx"
             config["command"] = launcher
-            config["args"] = [package_name] + processed_runtime_args + processed_package_args  # noqa: RUF005
+            config["args"] = cls._build_non_container_launcher_argv(
+                package_name,
+                runtime_groups,
+                package_groups,
+            )
         elif registry_name == "homebrew":
             formula_name = package_name.split("/")[-1] if "/" in package_name else package_name
             config["command"] = formula_name
             config["args"] = processed_runtime_args + processed_package_args
         else:
-            # Generic / npm-compatible fallback
-            config["command"] = "npx"
-            config["args"] = processed_runtime_args + ["-y", package_name] + processed_package_args  # noqa: RUF005
+            launcher = runtime_hint or "npx"
+            config["command"] = launcher
+            prefix = ("-y",) if launcher in ("npx", "bunx") else ()
+            config["args"] = cls._build_non_container_launcher_argv(
+                package_name,
+                runtime_groups,
+                package_groups,
+                launcher_prefix=prefix,
+            )
         if resolved_env:
             config["env"] = resolved_env
 

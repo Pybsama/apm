@@ -52,6 +52,7 @@ semicolon-delimited, and specific to the file(s) that own the fact.
 | Post-uninstall dependency reachability | deps/reachability.py (compute_forward_reachable_keys) | `src/apm_cli/deps/reachability.py` |
 | GitHub API throttle classification | deps/github_rate_limit.py | `src/apm_cli/deps/github_rate_limit.py` |
 | MCP container launcher selection and Docker argv shape | adapters/client/base.py (MCPClientAdapter) | `src/apm_cli/adapters/client/base.py` |
+| MCP non-container package launcher argv shape | adapters/client/base.py (MCPClientAdapter) | `src/apm_cli/adapters/client/base.py` |
 <!-- /canonical-owner-table -->
 
 If you are about to compute one of these locally, stop and call the

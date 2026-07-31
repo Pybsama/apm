@@ -352,6 +352,46 @@ class TestCollectRuntimeVariables:
         ops.batch_fetch_server_info.assert_called_once_with(["server-a"])
         assert result == {}
 
+    def test_preserves_variable_default_and_secret_metadata(self) -> None:
+        ops = _make_ops()
+        cache = {
+            "server-a": {
+                "packages": [
+                    {
+                        "runtime_arguments": [
+                            {
+                                "variables": {
+                                    "ACCESS_CODE": {
+                                        "description": "Launcher access code",
+                                        "isRequired": True,
+                                        "isSecret": True,
+                                        "default": "registry-default",
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        with patch.object(
+            ops,
+            "_prompt_for_environment_variables",
+            return_value={},
+        ) as prompt:
+            ops.collect_runtime_variables(["server-a"], server_info_cache=cache)
+
+        prompt.assert_called_once_with(
+            {
+                "ACCESS_CODE": {
+                    "description": "Launcher access code",
+                    "required": True,
+                    "value": "registry-default",
+                    "secret": True,
+                }
+            }
+        )
+
     def test_skips_exception_servers(self) -> None:
         ops = _make_ops()
         # Cache has a server whose info raises on get

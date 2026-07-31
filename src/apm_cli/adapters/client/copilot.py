@@ -534,6 +534,8 @@ class CopilotClientAdapter(MCPClientAdapter):
         processed_runtime_args,
         processed_package_args,
         resolved_env,
+        runtime_argument_groups=None,
+        package_argument_groups=None,
     ):
         """Populate *config* with command/args/env for a single package.
 
@@ -548,11 +550,23 @@ class CopilotClientAdapter(MCPClientAdapter):
             processed_runtime_args: Pre-processed runtime argument list.
             processed_package_args: Pre-processed package argument list.
             resolved_env: Resolved environment variable mapping.
+            runtime_argument_groups: Optional typed runtime groups.
+            package_argument_groups: Optional typed package groups.
         """
+        runtime_groups = runtime_argument_groups
+        if runtime_groups is None:
+            runtime_groups = self._processed_non_container_argument_groups(processed_runtime_args)
+        package_groups = package_argument_groups
+        if package_groups is None:
+            package_groups = self._processed_non_container_argument_groups(processed_package_args)
+
         if registry_name == "npm":
             config["command"] = runtime_hint or "npx"
-            config["args"] = (
-                ["-y", package_name] + processed_runtime_args + processed_package_args  # noqa: RUF005
+            config["args"] = self._build_non_container_launcher_argv(
+                package_name,
+                runtime_groups,
+                package_groups,
+                launcher_prefix=("-y",),
             )
             if resolved_env:
                 config["env"] = resolved_env
@@ -573,6 +587,8 @@ class CopilotClientAdapter(MCPClientAdapter):
                 processed_runtime_args,
                 processed_package_args,
                 resolved_env,
+                runtime_groups,
+                package_groups,
             )
 
     def _select_and_dispatch_best_package(
@@ -612,6 +628,19 @@ class CopilotClientAdapter(MCPClientAdapter):
         env_vars = package.get("environment_variables", [])
 
         resolved_env = self._resolve_environment_variables(env_vars, env_overrides)
+        runtime_argument_groups = None
+        package_argument_groups = None
+        if registry_name != "docker":
+            runtime_argument_groups = self._parse_non_container_argument_groups(
+                runtime_arguments,
+                resolved_env=resolved_env,
+                runtime_vars=runtime_vars,
+            )
+            package_argument_groups = self._parse_non_container_argument_groups(
+                package_arguments,
+                resolved_env=resolved_env,
+                runtime_vars=runtime_vars,
+            )
         processed_runtime_args = self._process_arguments(
             runtime_arguments, resolved_env, runtime_vars
         )
@@ -630,6 +659,8 @@ class CopilotClientAdapter(MCPClientAdapter):
             processed_runtime_args,
             processed_package_args,
             resolved_env,
+            runtime_argument_groups,
+            package_argument_groups,
         )
         return package
 

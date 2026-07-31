@@ -106,6 +106,11 @@ VS Code prefers `npm`, PyPI, then OCI. OCI packages require Docker to be
 available when the harness starts the server; no per-target launcher
 configuration is needed.
 
+For non-container `npm`, `pypi`, and generic packages, APM preserves
+typed v0.1 `runtimeArguments` and `packageArguments` in authored order
+and writes the package identifier exactly once. Legacy `value_hint`
+arguments remain supported.
+
 | Harness | File | Scope | Format |
 |---|---|---|---|
 | GitHub Copilot CLI | `~/.copilot/mcp-config.json` | global | JSON `mcpServers` |

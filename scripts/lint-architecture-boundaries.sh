@@ -723,6 +723,33 @@ if ! grep -q '_REGISTRY_TYPE_ALIASES = {"oci": "docker"}' "$mcp_container_owner"
     violations=$((violations + 1))
 fi
 
+echo "[*] AC21: MCP non-container launcher argv authority"
+mcp_noncontainer_consumers=(
+    src/apm_cli/adapters/client/copilot.py
+    src/apm_cli/adapters/client/vscode.py
+)
+mcp_noncontainer_owner_defs=$(grep -rEc \
+    '^[[:space:]]*def _build_non_container_launcher_argv\(' \
+    src/apm_cli/adapters/client --include='*.py' \
+    | awk -F: '{sum += $2} END {print sum + 0}')
+mcp_noncontainer_missing_consumers=$(grep -L \
+    'self\._build_non_container_launcher_argv(' \
+    "${mcp_noncontainer_consumers[@]}" || true)
+mcp_legacy_extractor_calls=$(
+    grep -rEn --include='*.py' \
+        '_extract_package_args\(' src/apm_cli/adapters/client \
+        | grep -vE ':[0-9]+:[[:space:]]*def _extract_package_args\(' \
+        || true
+)
+if [ "$mcp_noncontainer_owner_defs" -ne 1 ] \
+    || ! grep -q 'cls\._build_non_container_launcher_argv(' "$mcp_container_owner" \
+    || [ -n "$mcp_noncontainer_missing_consumers" ] \
+    || [ -n "$mcp_legacy_extractor_calls" ]; then
+    echo "[x] MCP non-container launcher argv must route through MCPClientAdapter"
+    [ -n "$mcp_legacy_extractor_calls" ] && echo "$mcp_legacy_extractor_calls"
+    violations=$((violations + 1))
+fi
+
 if [ "$violations" -gt 0 ]; then
     echo "[x] $violations architecture boundary rule(s) failed"
     exit 1
