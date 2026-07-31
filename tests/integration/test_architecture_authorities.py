@@ -1478,7 +1478,9 @@ def test_mcp_noncontainer_launcher_has_one_canonical_owner() -> None:
     owner_table = (root / ".github/instructions/architecture.instructions.md").read_text(
         encoding="utf-8"
     )
-    assert "| MCP non-container package launcher argv shape |" in owner_table
+    assert "| MCP package launcher selection and argv shape (container and non-container) |" in (
+        owner_table
+    )
     guard = (root / "scripts/lint-architecture-boundaries.sh").read_text(encoding="utf-8")
     assert "MCP non-container launcher argv must route through MCPClientAdapter" in guard
 
