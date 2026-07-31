@@ -21,7 +21,6 @@ from ...utils.github_host import (
 )
 from ...utils.path_security import (
     PathTraversalError,
-    ensure_path_within,
     validate_path_segments,
 )
 from ..validation import InvalidVirtualPackageExtensionError
@@ -35,8 +34,10 @@ from .identity import (
     _split_shorthand_host_port,
     build_canonical_dependency_string,
     build_dependency_unique_key,
+    is_case_insensitive_package_identity,
     normalize_package_repo_url,
 )
+from .materialization import build_materialization_path
 from .object_fields import (
     apply_optional_dependency_fields,
     local_path_apm_yml_entry,
@@ -117,10 +118,22 @@ class DependencyReference(ProviderCoordinateMixin):
     marketplace_plugin_name: str | None = None
     marketplace_version_spec: str | None = None
 
-    def __post_init__(self) -> None:
-        """Normalize case-insensitive package identity at the model boundary."""
-        self.repo_url = normalize_package_repo_url(
+    @property
+    def canonical_repo_url(self) -> str:
+        """Return the comparison-only repository identity."""
+        return normalize_package_repo_url(
             self.repo_url,
+            host=self.host,
+            source=self.source,
+            registry_prefix=self.artifactory_prefix,
+            is_local=self.is_local,
+            is_marketplace=self.is_marketplace,
+        )
+
+    @property
+    def has_case_insensitive_repo_identity(self) -> bool:
+        """Return whether repository casing is presentation-only."""
+        return is_case_insensitive_package_identity(
             host=self.host,
             source=self.source,
             registry_prefix=self.artifactory_prefix,
@@ -330,6 +343,7 @@ class DependencyReference(ProviderCoordinateMixin):
             registry_prefix=self.artifactory_prefix,
             declaring_parent=self.declaring_parent,
             anchored_local_path=self.anchored_local_path,
+            is_marketplace=self.is_marketplace,
         )
 
     def get_resolution_key(self) -> str:
@@ -343,6 +357,28 @@ class DependencyReference(ProviderCoordinateMixin):
         if self.is_local and self.anchored_local_path:
             return f"local:{self.anchored_local_path}"
         return self.get_unique_key()
+
+    def _format_reference(self, repo_url: str) -> str:
+        """Format one scheme-free reference from the supplied repository path."""
+        if self.is_local and self.local_path:
+            return self.local_path
+
+        host = self.host or default_host()
+        is_default = host.lower() == default_host().lower()
+        host_label = f"{host}:{self.port}" if self.port else host
+
+        if is_default and not self.port and not self.artifactory_prefix:
+            result = repo_url
+        elif self.artifactory_prefix:
+            result = f"{host_label}/{self.artifactory_prefix}/{repo_url}"
+        else:
+            result = f"{host_label}/{repo_url}"
+
+        if self.is_virtual and self.virtual_path:
+            result = f"{result}/{self.virtual_path}"
+        if self.reference:
+            result = f"{result}#{self.reference}"
+        return result
 
     def to_canonical(self) -> str:
         """Return the canonical scheme-free identity string for this dependency.
@@ -361,32 +397,11 @@ class DependencyReference(ProviderCoordinateMixin):
         Returns:
             str: Canonical dependency string
         """
-        if self.is_local and self.local_path:
-            return self.local_path
+        return self._format_reference(self.canonical_repo_url)
 
-        host = self.host or default_host()
-
-        is_default = host.lower() == default_host().lower()
-        # Custom port is part of the transport and must travel with the host label.
-        host_label = f"{host}:{self.port}" if self.port else host
-
-        # Start with optional host prefix
-        if is_default and not self.port and not self.artifactory_prefix:
-            result = self.repo_url
-        elif self.artifactory_prefix:
-            result = f"{host_label}/{self.artifactory_prefix}/{self.repo_url}"
-        else:
-            result = f"{host_label}/{self.repo_url}"
-
-        # Append virtual path for virtual packages
-        if self.is_virtual and self.virtual_path:
-            result = f"{result}/{self.virtual_path}"
-
-        # Append reference (branch, tag, commit)
-        if self.reference:
-            result = f"{result}#{self.reference}"
-
-        return result
+    def to_display_reference(self) -> str:
+        """Return a portable reference retaining source repository casing."""
+        return self._format_reference(self.repo_url)
 
     def get_identity(self) -> str:
         """Return the identity of this dependency (canonical form without ref/alias).
@@ -402,14 +417,16 @@ class DependencyReference(ProviderCoordinateMixin):
 
         host = self.host or default_host()
         is_default = host.lower() == default_host().lower()
-        host_label = f"{host}:{self.port}" if self.port else host
+        normalized_host = host.lower()
+        host_label = f"{normalized_host}:{self.port}" if self.port else normalized_host
+        repo_url = self.canonical_repo_url
 
         if is_default and not self.port and not self.artifactory_prefix:
-            result = self.repo_url
+            result = repo_url
         elif self.artifactory_prefix:
-            result = f"{host_label}/{self.artifactory_prefix}/{self.repo_url}"
+            result = f"{host_label}/{self.artifactory_prefix}/{repo_url}"
         else:
-            result = f"{host_label}/{self.repo_url}"
+            result = f"{host_label}/{repo_url}"
 
         if self.is_virtual and self.virtual_path:
             result = f"{result}/{self.virtual_path}"
@@ -444,7 +461,7 @@ class DependencyReference(ProviderCoordinateMixin):
             str: Host-blind canonical string (e.g., "owner/repo")
         """
         return build_canonical_dependency_string(
-            self.repo_url,
+            self.canonical_repo_url,
             is_local=self.is_local,
             local_path=self.local_path,
             is_virtual=self.is_virtual,
@@ -465,80 +482,7 @@ class DependencyReference(ProviderCoordinateMixin):
         Returns:
             Path: Absolute path to the package installation directory
         """
-        if self.is_marketplace:
-            raise ValueError(
-                f"Cannot compute install path for unresolved marketplace dependency "
-                f"'{self.marketplace_plugin_name}@{self.marketplace_name}'"
-            )
-
-        if self.is_local and self.local_path:
-            pkg_dir_name = Path(self.local_path).name
-            validate_path_segments(
-                pkg_dir_name,
-                context="local package path",
-                reject_empty=True,
-            )
-            if self.declaring_parent:
-                import hashlib
-
-                identity = self.anchored_local_path or self.local_path
-                parent_slot = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
-                result = apm_modules_dir / "_local" / parent_slot / pkg_dir_name
-            else:
-                result = apm_modules_dir / "_local" / pkg_dir_name
-            ensure_path_within(result, apm_modules_dir)
-            return result
-
-        repo_parts = self.repo_url.split("/")
-
-        # Security: reject traversal in repo_url segments (catches lockfile injection)
-        validate_path_segments(self.repo_url, context="repo_url")
-
-        # Security: reject traversal in virtual_path (catches lockfile injection)
-        if self.virtual_path:
-            validate_path_segments(self.virtual_path, context="virtual_path")
-        result: Path | None = None
-
-        if self.is_virtual:
-            # Subdirectory packages (like Claude Skills) should use natural path structure
-            if self.is_virtual_subdirectory():
-                # Use repo path + subdirectory path
-                if self.is_azure_devops() and len(repo_parts) >= 3:
-                    # ADO: org/project/repo/subdir
-                    result = (
-                        apm_modules_dir
-                        / repo_parts[0]
-                        / repo_parts[1]
-                        / repo_parts[2]
-                        / self.virtual_path
-                    )
-                elif len(repo_parts) >= 2:
-                    # owner/repo/subdir or group/subgroup/repo/subdir
-                    result = apm_modules_dir.joinpath(*repo_parts, self.virtual_path)
-            else:
-                # Virtual file/collection: use sanitized package name (flattened)
-                package_name = self.get_virtual_package_name()
-                if self.is_azure_devops() and len(repo_parts) >= 3:
-                    # ADO: org/project/virtual-pkg-name
-                    result = apm_modules_dir / repo_parts[0] / repo_parts[1] / package_name
-                elif len(repo_parts) >= 2:
-                    # owner/virtual-pkg-name (use first segment as namespace)
-                    result = apm_modules_dir / repo_parts[0] / package_name
-        # Regular package: use full repo path
-        elif self.is_azure_devops() and len(repo_parts) >= 3:
-            # ADO: org/project/repo
-            result = apm_modules_dir / repo_parts[0] / repo_parts[1] / repo_parts[2]
-        elif len(repo_parts) >= 2:
-            # owner/repo or group/subgroup/repo (generic hosts)
-            result = apm_modules_dir.joinpath(*repo_parts)
-
-        if result is None:
-            # Fallback: join all parts
-            result = apm_modules_dir.joinpath(*repo_parts)
-
-        # Security: ensure the computed path stays within apm_modules/
-        ensure_path_within(result, apm_modules_dir)
-        return result
+        return build_materialization_path(self, apm_modules_dir)
 
     @staticmethod
     def _reject_shorthand_alias(dependency_str: str) -> None:
@@ -1992,7 +1936,7 @@ class DependencyReference(ProviderCoordinateMixin):
         - HTTP (insecure) git deps: returns a dict with 'git' and 'allow_insecure' keys.
         - Git deps with skill_subset or target_subset: returns a dict with 'git' plus
           the applicable optional keys.
-        - All other deps: returns the canonical string (same as to_canonical()).
+        - All other deps: returns a scheme-free string retaining repository casing.
 
         Returns:
             str or dict: String for simple deps; dict for local-with-subsets, HTTP, or
@@ -2014,7 +1958,7 @@ class DependencyReference(ProviderCoordinateMixin):
                     self.skill_subset,
                     self.target_subset,
                 )
-            return self.to_canonical()
+            return self.to_display_reference()
         if self.is_insecure:
             host = self.host or default_host()
             netloc = f"{host}:{self.port}" if self.port else host
@@ -2030,7 +1974,7 @@ class DependencyReference(ProviderCoordinateMixin):
                 entry["targets"] = sorted(self.target_subset)
             return entry
         if self.skill_subset or self.target_subset:
-            entry = {"git": self.get_identity()}
+            entry = {"git": self._format_reference(self.repo_url).split("#", 1)[0]}
             if self.reference:
                 entry["ref"] = self.reference
             if self.alias:
@@ -2040,7 +1984,7 @@ class DependencyReference(ProviderCoordinateMixin):
             if self.target_subset:
                 entry["targets"] = sorted(self.target_subset)
             return entry
-        return self.to_canonical()
+        return self.to_display_reference()
 
     def to_github_url(self) -> str:
         """Convert to the canonical repository URL, or return a local path."""

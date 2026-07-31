@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Mixed-case GitHub dependency paths now retain source casing in
+  `apm_modules/` and generated links while lockfile and deduplication identity
+  stays canonical; reinstall migrates stale case-only paths safely. Reported
+  by @rcollette. (closes #2347)
 - `apm install --dry-run` no longer lists the project's own `includes: auto`
   self-managed files under "Files that would be removed"; the orphan preview
   now excludes the synthesized lockfile self-entry, matching the real install

@@ -133,6 +133,7 @@ class LockedDependency:
     """A resolved dependency with exact commit/version information."""
 
     repo_url: str
+    materialization_repo_url: str | None = None
     host: str | None = None
     host_type: str | None = None
     port: int | None = None  # Non-standard SSH/HTTPS port (e.g. 7999 for Bitbucket DC)
@@ -208,12 +209,26 @@ class LockedDependency:
     _unknown_fields: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Normalize case-insensitive package identity when loading or creating locks."""
-        self.repo_url = normalize_package_repo_url(
+        """Separate canonical lock identity from materialization spelling."""
+        original_repo_url = self.repo_url
+        canonical_repo_url = normalize_package_repo_url(
             self.repo_url,
             host=self.host,
             source=self.source,
             registry_prefix=self.registry_prefix,
+        )
+        materialization_repo_url = self.materialization_repo_url or original_repo_url
+        materialization_identity = normalize_package_repo_url(
+            materialization_repo_url,
+            host=self.host,
+            source=self.source,
+            registry_prefix=self.registry_prefix,
+        )
+        if materialization_identity != canonical_repo_url:
+            raise ValueError("materialization_repo_url must identify the same package as repo_url")
+        self.repo_url = canonical_repo_url
+        self.materialization_repo_url = (
+            materialization_repo_url if materialization_repo_url != canonical_repo_url else None
         )
 
     def get_unique_key(self) -> str:
@@ -249,6 +264,8 @@ class LockedDependency:
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for YAML output."""
         result: dict[str, Any] = {"repo_url": self.repo_url}
+        if self.materialization_repo_url:
+            result["materialization_repo_url"] = self.materialization_repo_url
         if self.name is not None:
             result["name"] = self.name
         if self.host:
@@ -364,6 +381,7 @@ class LockedDependency:
         # the explicit legacy key handled above; do NOT consider it unknown.
         _known_keys = {
             "repo_url",
+            "materialization_repo_url",
             "host",
             "host_type",
             "port",
@@ -411,6 +429,7 @@ class LockedDependency:
 
         return cls(
             repo_url=data["repo_url"],
+            materialization_repo_url=data.get("materialization_repo_url"),
             host=data.get("host"),
             host_type=host_type,
             port=port,
@@ -546,8 +565,19 @@ class LockedDependency:
         else:
             version_value = None
 
+        canonical_repo_url = normalize_package_repo_url(
+            dep_ref.repo_url,
+            host=dep_ref.host,
+            source="local" if dep_ref.is_local else dep_ref.source,
+            registry_prefix=dep_ref.artifactory_prefix,
+            is_local=dep_ref.is_local,
+            is_marketplace=dep_ref.is_marketplace,
+        )
         return cls(
-            repo_url=dep_ref.repo_url,
+            repo_url=canonical_repo_url,
+            materialization_repo_url=(
+                dep_ref.repo_url if dep_ref.repo_url != canonical_repo_url else None
+            ),
             host=host,
             host_type=dep_ref.host_type,
             port=dep_ref.port,
@@ -605,7 +635,7 @@ class LockedDependency:
         is_registry = self.source == "registry"
         ref = self.version if (is_registry and self.version) else self.resolved_ref
         return DependencyReference(
-            repo_url=self.repo_url,
+            repo_url=self.materialization_repo_url or self.repo_url,
             host=self.host,
             host_type=self.host_type,
             port=self.port,

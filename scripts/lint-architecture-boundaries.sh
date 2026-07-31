@@ -702,6 +702,39 @@ if [ -n "$auth_header_dictmerge_hits" ]; then
     violations=$((violations + 1))
 fi
 
+echo "[*] AC20: dependency identity and materialization path authority"
+identity_owner="src/apm_cli/models/dependency/identity.py"
+materialization_owner="src/apm_cli/models/dependency/materialization.py"
+reference_owner="src/apm_cli/models/dependency/reference.py"
+unique_key_body=$(awk '
+    /^def build_dependency_unique_key\(/ {flag=1}
+    flag && /^def / && !/^def build_dependency_unique_key\(/ {exit}
+    flag {print}
+' "$identity_owner")
+install_path_body=$(awk '
+    /^    def get_install_path\(/ {flag=1}
+    flag && /^    def / && !/^    def get_install_path\(/ {exit}
+    flag {print}
+' "$reference_owner")
+materialization_path_body=$(awk '
+    /^def build_materialization_path\(/ {flag=1}
+    flag && /^def / && !/^def build_materialization_path\(/ {exit}
+    flag {print}
+' "$materialization_owner")
+if ! printf '%s\n' "$unique_key_body" | grep -q 'normalize_package_repo_url(' \
+    || ! grep -q '^def prepare_materialization_path(' "$materialization_owner" \
+    || ! grep -q 'prepare_materialization_path(' src/apm_cli/install/phases/resolve.py \
+    || ! printf '%s\n' "$install_path_body" \
+        | grep -q 'return build_materialization_path(self, apm_modules_dir)' \
+    || ! printf '%s\n' "$materialization_path_body" \
+        | grep -q 'repo_parts = dependency.repo_url.split("/")' \
+    || printf '%s\n' "$materialization_path_body" \
+        | grep -Eq 'canonical_repo_url|normalize_package_repo_url|\.lower\(\)|\.casefold\(\)' \
+    || grep -q 'self\.repo_url = normalize_package_repo_url' "$reference_owner"; then
+    echo "[x] Dependency identity may casefold only in identity.py; materialization must preserve source casing"
+    violations=$((violations + 1))
+fi
+
 if [ "$violations" -gt 0 ]; then
     echo "[x] $violations architecture boundary rule(s) failed"
     exit 1

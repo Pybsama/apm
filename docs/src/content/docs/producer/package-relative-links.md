@@ -42,6 +42,12 @@ See [design patterns](../../apm_modules/<owner>/my-pkg/references/patterns.md).
 The package itself stays intact under `apm_modules/`; the deployed
 primitive points back into it.
 
+The `<owner>/<repo>` spelling matches the dependency source, including case.
+APM lowercases GitHub coordinates only for identity comparison; it never uses
+that comparison key in the generated relative link. Reinstall also repairs
+stale APM-managed links and case-only materialization paths without replacing
+user-authored files.
+
 ## What APM rewrites
 
 A markdown link with text `[text]` and target `(path)` is rewritten only

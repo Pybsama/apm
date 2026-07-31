@@ -32,6 +32,7 @@ from apm_cli.install.helpers.ref_reuse import (
 from apm_cli.install.helpers.ref_seed import seed_ref_resolver_from_lockfile
 from apm_cli.install.transaction import resolution_for_context
 from apm_cli.models.apm_package import GitReferenceType, ResolvedReference
+from apm_cli.models.dependency.materialization import prepare_materialization_path
 from apm_cli.utils.short_sha import format_short_sha
 
 if TYPE_CHECKING:
@@ -123,6 +124,30 @@ def _purge_cached_semver_paths_for_update(
                     f"[*] --update: cleared cached install path for "
                     f"{_dep.get_unique_key()} to force semver re-resolution"
                 )
+
+
+def _prepare_existing_materialization_paths(
+    ctx: InstallContext,
+    staging_session: ResolutionStagingSession,
+) -> None:
+    """Migrate case-only legacy paths before resolver cache checks can bypass callbacks."""
+    dependencies = list(ctx.all_apm_deps)
+    seen_keys = {dependency.get_unique_key() for dependency in dependencies}
+    if ctx.existing_lockfile is not None:
+        for locked in ctx.existing_lockfile.get_package_dependencies():
+            dependency = locked.to_dependency_ref()
+            key = dependency.get_unique_key()
+            if key in seen_keys:
+                continue
+            dependencies.append(dependency)
+            seen_keys.add(key)
+
+    for dependency in dependencies:
+        prepare_materialization_path(
+            dependency,
+            ctx.apm_modules_dir,
+            staging_session,
+        )
 
 
 def _load_lockfile(ctx: InstallContext) -> None:
@@ -376,7 +401,11 @@ def _resolve_dependencies(ctx: InstallContext, staging_session: ResolutionStagin
                 transitive ``../sibling`` resolves against the declaring
                 package's directory rather than the root consumer (#857).
         """
-        install_path = dep_ref.get_install_path(modules_dir)
+        install_path = prepare_materialization_path(
+            dep_ref,
+            modules_dir,
+            staging_session,
+        )
         # Cache reuse stays behind the canonical ref-drift owner.
         if install_path.exists():
             _locked_for_recheck = (
@@ -895,9 +924,11 @@ def run(ctx: InstallContext) -> None:
     """
     _load_lockfile(ctx)
     _ensure_modules_dir(ctx)
+    staging_session = resolution_for_context(ctx)
+    _prepare_existing_materialization_paths(ctx, staging_session)
     _setup_downloader(ctx)
     seed_ref_resolver_from_lockfile(ctx)
-    _resolve_dependencies(ctx, resolution_for_context(ctx))
+    _resolve_dependencies(ctx, staging_session)
     _record_update_plan_complete_dep_keys(ctx)
     if ctx.only_packages:
         _apply_only_filter(ctx)

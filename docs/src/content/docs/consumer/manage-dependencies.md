@@ -68,10 +68,12 @@ parser. The supported forms:
 | Registry object form | `{ id: owner/repo, version: ^2.0.0 }` | Explicit registry dep. `registry:` optional when a default registry is configured. Requires `registries` experimental flag. |
 
 GitHub and package-registry owner/repository identifiers are normalized to
-lowercase before APM derives lock keys, cache identity, canonical strings, or
-`apm_modules/` paths. For example, `Owner/Repo` and `owner/repo` install as one
-package at `apm_modules/owner/repo`. Repository path casing is preserved for
-unknown git hosts because a self-hosted backend may be case-sensitive.
+lowercase only for comparison, lock keys, and cache identity. Materialization
+and generated links retain the source spelling: `Owner/Repo` installs at
+`apm_modules/Owner/Repo`, while `owner/repo` still compares as the same package.
+A reinstall migrates stale APM-created case variants before rewriting managed
+links. Repository path casing also remains identity-significant for unknown git
+hosts because a self-hosted backend may be case-sensitive.
 
 Object form in YAML — three mutually exclusive keys select the variant
 (`git`, `path`, or `marketplace`):

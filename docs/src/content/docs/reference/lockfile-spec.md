@@ -188,6 +188,7 @@ Each item in `dependencies` describes one resolved package.
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `repo_url` | string | yes | Canonical repository path or URL. Entry identity is derived from `repo_url`, `host`, and virtual/local markers; see [lockfile identity keys](#lockfile-identity-keys). |
+| `materialization_repo_url` | string | no | Source-cased repository path used only for `apm_modules/` materialization and generated links. Omitted when it equals `repo_url`; it must normalize to the same identity and cannot redirect a lock entry. |
 | `host` | string | no | FQDN when not inferable from `repo_url` (e.g. for registry proxies or non-GitHub hosts). |
 | `host_type` | string | no | Explicit host-kind hint, currently `gitlab`, copied from object-form `type: gitlab`. |
 | `port` | int | no | Non-standard SSH/HTTPS port. Validated to `1..65535` on read. |
@@ -244,8 +245,11 @@ logical key because the proxy host is transport, not package identity.
 
 GitHub and package-registry owner/repository paths are lowercased before APM
 derives the key. Older mixed-case GitHub entries therefore serialize with the
-same key as new lowercase references. Repository path casing remains unchanged
-for unknown git hosts because those backends may be case-sensitive.
+same key as new lowercase references. Their source spelling is retained
+separately in `materialization_repo_url`, so filesystem paths and relative links
+do not reuse the lowercase comparison key. Repository path casing remains
+identity-significant for unknown git hosts because those backends may be
+case-sensitive.
 
 ## Self entry
 

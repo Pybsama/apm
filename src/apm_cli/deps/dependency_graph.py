@@ -90,12 +90,11 @@ class DependencyTree:
         node_id = node.get_id()
         unique_key = node.dependency_ref.get_unique_key()
         is_new = node_id not in self.nodes
+        if not is_new:
+            return
         self.nodes[node_id] = node
-        if is_new:
-            self._nodes_by_unique_key.setdefault(unique_key, node)
-            self._nodes_by_depth[node.depth].append(node)
-        else:
-            self._nodes_by_unique_key[unique_key] = node
+        self._nodes_by_unique_key.setdefault(unique_key, node)
+        self._nodes_by_depth[node.depth].append(node)
         if node.dependency_ref.repo_url:
             self._repo_url_index.add(node.dependency_ref.repo_url)
         self.max_depth = max(self.max_depth, node.depth)
