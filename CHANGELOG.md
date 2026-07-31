@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `apm install --target vscode` now preserves typed MCP Registry v0.1
+  arguments for non-container npm, PyPI, and generic launchers while keeping
+  one semantic package identity and legacy `value_hint` compatibility.
+  (by @edenfunf, closes #2388, #2407)
+
 - `apm install --target vscode` now launches container servers with their full
   registry-supplied run options, including bind mounts whose values APM just
   collected. VS Code previously read only the legacy `value_hint` spelling, so

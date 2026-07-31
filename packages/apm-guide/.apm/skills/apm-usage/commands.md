@@ -208,9 +208,12 @@ launcher automatically. Docker run options stay before the image and
 package arguments stay after it. Docker must be available when the
 harness starts the server; no manual launcher override is required.
 
-For non-container packages, install preserves typed v0.1 registry
-arguments and legacy `value_hint` arguments while writing the package
-identifier exactly once.
+For VS Code and Copilot-family adapters, non-container install preserves
+typed v0.1 registry arguments and legacy `value_hint` arguments while
+keeping exactly one semantic package identity. Registry defaults resolve,
+secret variables use target-native references, unresolved optional groups
+are omitted atomically, and malformed or unresolved required entries fail
+closed.
 
 ## Runtime management (experimental)
 

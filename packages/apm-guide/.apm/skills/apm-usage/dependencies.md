@@ -461,10 +461,13 @@ then PyPI; VS Code selects `npm`, PyPI, then OCI. Docker must be
 available when the harness starts an OCI server. Do not add per-target
 launcher overrides.
 
-For non-container `npm`, `pypi`, and generic packages, APM preserves
-typed v0.1 `runtimeArguments` and `packageArguments` in authored order
-and writes the package identifier exactly once. Legacy `value_hint`
-arguments remain compatible.
+For VS Code and Copilot-family adapters, non-container `npm`, `pypi`,
+and generic packages preserve typed v0.1 `runtimeArguments` and
+`packageArguments` in authored order, with exactly one semantic package
+identity. Legacy `value_hint` arguments remain compatible. Registry
+defaults resolve normally, secret variables use target-native references,
+unresolved optional groups are omitted atomically, and malformed or
+unresolved required entries fail closed.
 
 At user scope, Claude MCP entries are written to
 `$CLAUDE_CONFIG_DIR/.claude.json` when `CLAUDE_CONFIG_DIR` is set to a
