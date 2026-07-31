@@ -747,7 +747,10 @@ class VSCodeClientAdapter(MCPClientAdapter):
         # Reuse the shared normalizer so a registry template that omits -i/--rm
         # still yields an interactive, self-cleaning container.
         args: list[str] = DockerArgsProcessor.process_docker_args(run_options, {})
-        with_image: list[str] = cls._ensure_docker_image_arg(args, image)
+        try:
+            with_image: list[str] = cls._ensure_docker_image_arg(args, image)
+        except ValueError:
+            return None
         return with_image + package_args
 
     @classmethod

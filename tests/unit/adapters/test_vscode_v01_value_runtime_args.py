@@ -410,9 +410,7 @@ class TestDockerRunArgs(unittest.TestCase):
             {"value": "run", "type": "positional"},
             {"value": "-v", "variables": None, "type": "positional"},
         )
-        self.assertEqual(
-            VSCodeClientAdapter._docker_run_args(package), ["run", "-i", "--rm", "-v", IMAGE]
-        )
+        self.assertIsNone(VSCodeClientAdapter._docker_run_args(package))
 
     def test_non_string_values_are_coerced_rather_than_dropped(self):
         package = _docker_package(

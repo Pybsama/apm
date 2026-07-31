@@ -69,6 +69,7 @@ _DOCKER_RUN_OPTIONS_WITH_VALUES = frozenset(
         "--device-write-bps",
         "--device-write-iops",
         "--dns",
+        "--dns-opt",
         "--dns-option",
         "--dns-search",
         "--domainname",
@@ -105,6 +106,8 @@ _DOCKER_RUN_OPTIONS_WITH_VALUES = frozenset(
         "--memory-swappiness",
         "--mount",
         "--name",
+        "--net",
+        "--net-alias",
         "--network",
         "--network-alias",
         "--oom-score-adj",
@@ -511,12 +514,16 @@ class MCPClientAdapter(ABC):
                 break
             if isinstance(argument, str) and argument.startswith("--"):
                 option = argument.split("=", 1)[0]
-                index += (
-                    2 if "=" not in argument and option in _DOCKER_RUN_OPTIONS_WITH_VALUES else 1
-                )
+                consumes_next = "=" not in argument and option in _DOCKER_RUN_OPTIONS_WITH_VALUES
+                if consumes_next and index + 1 >= len(runtime_args):
+                    raise ValueError(f"Docker run option '{option}' requires a value")
+                index += 2 if consumes_next else 1
                 continue
             if isinstance(argument, str) and argument.startswith("-") and argument != "-":
-                index += 2 if cls._docker_option_requires_value(argument) else 1
+                consumes_next = cls._docker_option_requires_value(argument)
+                if consumes_next and index + 1 >= len(runtime_args):
+                    raise ValueError(f"Docker run option '{argument}' requires a value")
+                index += 2 if consumes_next else 1
                 continue
             break
         if index >= len(runtime_args):

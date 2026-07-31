@@ -279,6 +279,10 @@ class TestEnsureDockerImageArg(unittest.TestCase):
             ["run", "-itp", "8080:80", "docker.io/library/8080:latest"],
         )
 
+    def test_missing_value_for_docker_option_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, "Docker run option '--user' requires a value"):
+            MCPClientAdapter._ensure_docker_image_arg(["run", "--user"], OCI_IMAGE)
+
     def test_docker_hub_short_form_matches_the_qualified_identifier(self):
         """Registries qualify the identifier while their run args stay implicit."""
         base = ["run", "-i", "--rm", "mcp/github"]
@@ -355,6 +359,20 @@ class TestOciLauncherAcrossTargets(unittest.TestCase):
         config = _make_codex()._format_server_config(SERVER_INFO, runtime_vars=RUNTIME_VARS)
         self.assertEqual(config.get("command"), "docker")
         self.assertEqual(config.get("args"), EXPECTED_ARGS)
+
+    def test_codex_named_runtime_argument_emits_name_then_value(self):
+        package = dict(OCI_PACKAGE)
+        package["runtime_arguments"] = [
+            {"type": "positional", "value": "run"},
+            {"type": "named", "name": "--network", "value": "none"},
+        ]
+        config = _make_codex()._format_server_config(
+            {"id": "s", "name": "s", "packages": [package]}
+        )
+        self.assertEqual(
+            config.get("args"),
+            ["run", "--network", "none", OCI_IMAGE],
+        )
 
     def test_existing_docker_package_gains_no_duplicate_image(self):
         """Regression guard for packages that already worked before #2376.
