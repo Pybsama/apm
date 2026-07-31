@@ -612,6 +612,46 @@ class TestPromptForEnvironmentVariables:
             )
         assert result.get("MY_PROMPT_VAR") == "user-value"
 
+    def test_interactive_secret_default_is_reported_without_value(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        for name in (
+            "APM_E2E_TESTS",
+            "CI",
+            "GITHUB_ACTIONS",
+            "TRAVIS",
+            "JENKINS_URL",
+            "BUILDKITE",
+            "ACCESS_CODE",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        ops = _make_ops()
+        mock_prompt = MagicMock()
+
+        with (
+            patch("rich.console.Console"),
+            patch("rich.prompt.Prompt.ask", mock_prompt),
+            patch("apm_cli.registry.operations._rich_info") as info,
+        ):
+            result = ops._prompt_for_environment_variables(
+                {
+                    "ACCESS_CODE": {
+                        "description": "launcher access code",
+                        "required": True,
+                        "value": "must-not-be-logged",
+                        "secret": True,
+                    }
+                }
+            )
+
+        mock_prompt.assert_not_called()
+        info.assert_called_once_with(
+            "Using registry default for secret MCP variable 'ACCESS_CODE'."
+        )
+        assert result["ACCESS_CODE"] == "must-not-be-logged"
+        assert "must-not-be-logged" not in info.call_args.args[0]
+
     def test_click_fallback_when_no_rich(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("APM_E2E_TESTS", raising=False)
         monkeypatch.delenv("CI", raising=False)

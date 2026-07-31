@@ -7,6 +7,7 @@ from pathlib import Path
 import requests
 
 from ..core.token_manager import GitHubTokenManager
+from ..utils.console import _rich_info
 from .client import SimpleRegistryClient
 
 logger = logging.getLogger(__name__)
@@ -480,6 +481,8 @@ class MCPServerOperations:
                     console.print(f"  [+] {var_name}: [dim]using existing value[/dim]")
                     env_vars[var_name] = existing_value
                 elif default_value:
+                    if var_info.get("secret", False) is True:
+                        _rich_info(f"Using registry default for secret MCP variable '{var_name}'.")
                     env_vars[var_name] = default_value
                 elif not required:
                     continue
@@ -518,6 +521,8 @@ class MCPServerOperations:
                     click.echo(f"  [+] {var_name}: using existing value")
                     env_vars[var_name] = existing_value
                 elif default_value:
+                    if var_info.get("secret", False) is True:
+                        _rich_info(f"Using registry default for secret MCP variable '{var_name}'.")
                     env_vars[var_name] = default_value
                 elif not required:
                     continue

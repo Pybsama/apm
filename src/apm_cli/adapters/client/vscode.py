@@ -315,6 +315,7 @@ class VSCodeClientAdapter(MCPClientAdapter):
                     "runtime_vars": runtime_vars,
                     "runtime_variable_fallbacks": {"workspaceFolder": "${workspaceFolder}"},
                     "secret_variable_fallbacks": secret_fallbacks,
+                    "package_name": package.get("name", ""),
                 }
                 runtime_groups = self._parse_non_container_argument_groups(
                     package.get("runtime_arguments"),

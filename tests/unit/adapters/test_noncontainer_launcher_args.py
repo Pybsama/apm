@@ -588,8 +588,60 @@ def test_unresolved_required_argument_variable_fails_closed(
         ],
     }
 
-    with pytest.raises(ValueError, match=r"required MCP package argument"):
+    with pytest.raises(ValueError, match=r"required MCP package argument") as error:
         _render(target, package, tmp_path)
+    assert "'config_path'" in str(error.value)
+    assert "'mcp-server-required'" in str(error.value)
+
+
+@pytest.mark.parametrize("target", _TARGETS)
+def test_missing_required_positional_names_package(
+    target: str,
+    tmp_path: Path,
+) -> None:
+    """Malformed positional metadata identifies the affected package."""
+    package = {
+        "name": "mcp-server-missing",
+        "registry_name": "pypi",
+        "runtime_hint": "uvx",
+        "runtime_arguments": [{"type": "positional"}],
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"missing a required positional value",
+    ) as error:
+        _render(target, package, tmp_path)
+    assert "'mcp-server-missing'" in str(error.value)
+
+
+def test_copilot_noncontainer_groups_are_not_processed_twice(
+    tmp_path: Path,
+) -> None:
+    """The typed parser is the sole non-container resolution pass."""
+    with (
+        patch("apm_cli.adapters.client.copilot.SimpleRegistryClient"),
+        patch("apm_cli.adapters.client.copilot.RegistryIntegration"),
+    ):
+        adapter = CopilotClientAdapter(project_root=tmp_path)
+    package = {
+        "name": "mcp-server-single-pass",
+        "registry_name": "pypi",
+        "runtime_hint": "uvx",
+        "runtime_arguments": [{"value": "--stdio", "type": "positional"}],
+    }
+
+    with patch.object(adapter, "_process_arguments", wraps=adapter._process_arguments) as process:
+        config: dict[str, object] = {}
+        adapter._select_and_dispatch_best_package(
+            config,
+            [package],
+            env_overrides={},
+            runtime_vars={},
+        )
+
+    process.assert_not_called()
+    assert config["args"] == ["mcp-server-single-pass", "--stdio"]
 
 
 @pytest.mark.parametrize("target", _TARGETS)

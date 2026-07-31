@@ -635,18 +635,27 @@ class CopilotClientAdapter(MCPClientAdapter):
                 runtime_arguments,
                 resolved_env=resolved_env,
                 runtime_vars=runtime_vars,
+                package_name=package_name,
             )
             package_argument_groups = self._parse_non_container_argument_groups(
                 package_arguments,
                 resolved_env=resolved_env,
                 runtime_vars=runtime_vars,
+                package_name=package_name,
             )
-        processed_runtime_args = self._process_arguments(
-            runtime_arguments, resolved_env, runtime_vars
-        )
-        processed_package_args = self._process_arguments(
-            package_arguments, resolved_env, runtime_vars
-        )
+            processed_runtime_args = self._flatten_non_container_argument_groups(
+                runtime_argument_groups
+            )
+            processed_package_args = self._flatten_non_container_argument_groups(
+                package_argument_groups
+            )
+        else:
+            processed_runtime_args = self._process_arguments(
+                runtime_arguments, resolved_env, runtime_vars
+            )
+            processed_package_args = self._process_arguments(
+                package_arguments, resolved_env, runtime_vars
+            )
 
         if set_type_stdio:
             config["type"] = "stdio"

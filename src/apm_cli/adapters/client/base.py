@@ -490,6 +490,7 @@ class MCPClientAdapter(ABC):
         runtime_vars: dict[str, object] | None = None,
         runtime_variable_fallbacks: dict[str, str] | None = None,
         secret_variable_fallbacks: dict[str, str] | None = None,
+        package_name: str = "",
     ) -> list[_MCPLauncherArgumentGroup]:
         """Parse registry arguments without losing named-group boundaries.
 
@@ -507,6 +508,7 @@ class MCPClientAdapter(ABC):
                 such as VS Code's ``workspaceFolder``.
             secret_variable_fallbacks: Target-native indirections for secret
                 values that must not be written literally.
+            package_name: Package identity included in actionable diagnostics.
 
         Returns:
             Ordered atomic launcher argument groups.
@@ -565,12 +567,15 @@ class MCPClientAdapter(ABC):
                     if required:
                         groups.append(_MCPLauncherArgumentGroup("named", (name,)))
                 elif required:
-                    raise ValueError("MCP package argument required positional value is missing")
+                    raise ValueError(
+                        f"MCP package argument for '{package_name or 'unknown'}' "
+                        "is missing a required positional value"
+                    )
                 continue
             if not isinstance(raw_value, str):
                 raise ValueError("MCP package argument value must be a string")
 
-            rendered = self._resolve_non_container_argument_value(
+            rendered, unresolved_variable = self._resolve_non_container_argument_value(
                 raw_value,
                 variables=variables or {},
                 resolved_env=resolved_env or {},
@@ -580,7 +585,11 @@ class MCPClientAdapter(ABC):
             )
             if rendered is None:
                 if required:
-                    raise ValueError("Could not resolve required MCP package argument variable")
+                    raise ValueError(
+                        "Could not resolve required MCP package argument variable "
+                        f"'{unresolved_variable or 'unknown'}' for "
+                        f"'{package_name or 'unknown'}'"
+                    )
                 continue
 
             if arg_type == "named" and name:
@@ -599,8 +608,8 @@ class MCPClientAdapter(ABC):
         runtime_vars: dict[str, object],
         runtime_variable_fallbacks: dict[str, str],
         secret_variable_fallbacks: dict[str, str],
-    ) -> str | None:
-        """Resolve one argument value, returning None when a variable is absent."""
+    ) -> tuple[str | None, str | None]:
+        """Resolve one argument value and identify any absent variable."""
         for variable_name, variable_info in variables.items():
             if not isinstance(variable_name, str):
                 raise ValueError("MCP package argument variable names must be strings")
@@ -632,16 +641,19 @@ class MCPClientAdapter(ABC):
                         raise ValueError("MCP package argument variable value must be a string")
                     replacement = configured or runtime_variable_fallbacks.get(variable_name)
             if replacement is None:
-                return None
+                return None, variable_name
             template = template.replace(placeholder, replacement)
 
         string_runtime_vars = {
             key: str(value) for key, value in runtime_vars.items() if value is not None
         }
-        return self._resolve_variable_placeholders(
-            template,
-            resolved_env,
-            string_runtime_vars,
+        return (
+            self._resolve_variable_placeholders(
+                template,
+                resolved_env,
+                string_runtime_vars,
+            ),
+            None,
         )
 
     @staticmethod
