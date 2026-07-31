@@ -47,6 +47,12 @@ config directory (`github-copilot/intellij/`). That machine-global signal can
 select IntelliJ for MCP configuration in every project, but it never
 auto-selects a file-primitive target.
 
+JetBrains Copilot MCP writes use
+`%LOCALAPPDATA%\github-copilot\intellij\mcp.json` on Windows and
+`$XDG_CONFIG_HOME/github-copilot/intellij/mcp.json` on macOS/Linux
+(`XDG_CONFIG_HOME` defaults to `~/.config`). Reinstalling an older APM-managed
+entry migrates only provenance-owned servers from the obsolete data path.
+
 `apm install` prints a one-line provenance summary before any mutation:
 
 ```

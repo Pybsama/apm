@@ -702,6 +702,28 @@ if [ -n "$auth_header_dictmerge_hits" ]; then
     violations=$((violations + 1))
 fi
 
+echo "[*] AC20: JetBrains Copilot MCP config-path authority"
+intellij_path_owner="src/apm_cli/adapters/client/intellij.py"
+intellij_path_owner_count=$(grep -Ec '^def _intellij_config_dir\(' "$intellij_path_owner" || true)
+intellij_legacy_owner_count=$(
+    grep -Ec '^def _legacy_intellij_config_dir\(' "$intellij_path_owner" || true
+)
+intellij_path_duplicate_hits=$(
+    grep -rEn --include='*.py' \
+        'github-copilot.{0,80}intellij|intellij.{0,80}github-copilot' \
+        src/apm_cli \
+        | grep -v "^${intellij_path_owner}:" \
+        | grep -v 'architecture-authority-exempt:' \
+        || true
+)
+if [ "$intellij_path_owner_count" -ne 1 ] \
+    || [ "$intellij_legacy_owner_count" -ne 1 ] \
+    || [ -n "$intellij_path_duplicate_hits" ]; then
+    echo "[x] JetBrains Copilot MCP paths must come from the IntelliJ adapter"
+    [ -n "$intellij_path_duplicate_hits" ] && echo "$intellij_path_duplicate_hits"
+    violations=$((violations + 1))
+fi
+
 if [ "$violations" -gt 0 ]; then
     echo "[x] $violations architecture boundary rule(s) failed"
     exit 1
