@@ -68,9 +68,9 @@ LIFECYCLE_SMOKE_MERGE_GROUP_MARKER = "lifecycle_merge_group"
 LIFECYCLE_SMOKE_REQUIRED_EXPRESSION = (
     f"{LIFECYCLE_SMOKE_FULL_EXPRESSION} and not {LIFECYCLE_SMOKE_MERGE_GROUP_MARKER}"
 )
-LIFECYCLE_SMOKE_FULL_COUNT = 25
+LIFECYCLE_SMOKE_FULL_COUNT = 26
 LIFECYCLE_SMOKE_MERGE_GROUP_COUNT = 3
-LIFECYCLE_SMOKE_REQUIRED_COUNT = 22
+LIFECYCLE_SMOKE_REQUIRED_COUNT = 23
 LIFECYCLE_SMOKE_MERGE_GROUP_NODES = (
     "tests/integration/test_prune_deployment_ledger_e2e.py"
     "::test_prune_cascades_dependency_state_and_audit_sees_no_ghost",
@@ -791,7 +791,7 @@ def test_lifecycle_smoke_marker_family_empty_fails() -> None:
     """Proves the collection-non-empty check would fail loudly (pytest
     exit code 5, "no tests collected") if the lifecycle_smoke family ever
     became empty -- e.g. if every @pytest.mark.lifecycle_smoke were
-    stripped from the four modules and the AC14 function. Exercises the
+    stripped from the selected modules and the AC14 function. Exercises the
     exact same subprocess code path as
     _assert_lifecycle_smoke_collection_non_empty, with a marker name
     guaranteed to match zero tests today."""
