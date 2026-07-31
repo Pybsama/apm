@@ -392,6 +392,40 @@ class TestCollectRuntimeVariables:
             }
         )
 
+    def test_skips_non_string_runtime_variable_default(self) -> None:
+        ops = _make_ops()
+        cache = {
+            "server-a": {
+                "packages": [
+                    {
+                        "runtime_arguments": [
+                            {
+                                "variables": {
+                                    "PORT": {
+                                        "description": "Launcher port",
+                                        "isRequired": True,
+                                        "default": 8080,
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        with patch.object(
+            ops,
+            "_prompt_for_environment_variables",
+            return_value={},
+        ) as prompt:
+            result = ops.collect_runtime_variables(
+                ["server-a"],
+                server_info_cache=cache,
+            )
+
+        prompt.assert_not_called()
+        assert result == {}
+
     def test_skips_exception_servers(self) -> None:
         ops = _make_ops()
         # Cache has a server whose info raises on get

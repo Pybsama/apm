@@ -549,6 +549,13 @@ def test_empty_optional_positional_argument_is_skipped(
                 "variables": {"token": {"isSecret": "yes"}},
             }
         ],
+        [
+            {
+                "value": "{port}",
+                "type": "positional",
+                "variables": {"port": {"default": 8080}},
+            }
+        ],
     ),
 )
 def test_malformed_argument_entries_fail_closed(

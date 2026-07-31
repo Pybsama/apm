@@ -281,7 +281,7 @@ class MCPServerOperations:
                 if not server_info:
                     continue
 
-                # Extract runtime variables from both Docker argument phases.
+                # Extract variables from both registry argument phases.
                 packages = server_info.get("packages", [])
                 for package in packages:
                     if isinstance(package, dict):
@@ -299,6 +299,11 @@ class MCPServerOperations:
                                                     "default",
                                                     "",
                                                 )
+                                            if configured_value and not isinstance(
+                                                configured_value,
+                                                str,
+                                            ):
+                                                continue
                                             collected_runtime_vars[var_name] = {
                                                 "description": var_info.get("description", ""),
                                                 "required": var_info.get(
