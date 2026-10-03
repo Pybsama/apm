@@ -730,7 +730,7 @@ def _path_exists_in_tree_at_ref(
     log: Callable[[str], None],
     winning_attempt: AttemptSpec,
 ) -> bool:
-    """Confirm ``vpath`` exists at ``ref`` via shallow fetch + ``ls-tree``.
+    """Confirm ``vpath`` is a directory at ``ref`` via shallow fetch + ``ls-tree``.
 
     Closes the fail-open hole in ``_ref_exists_via_ls_remote``: knowing
     that the ref exists is not the same as knowing the subdirectory
@@ -748,7 +748,7 @@ def _path_exists_in_tree_at_ref(
 
     Returns:
         True iff the shallow fetch succeeded AND ``ls-tree`` reported
-        at least one entry for ``vpath`` at the resolved ref.
+        a directory entry for ``vpath`` at the resolved ref.
     """
     label, url, env = winning_attempt
 
@@ -804,7 +804,7 @@ def _path_exists_in_tree_at_ref(
 
         try:
             result = subprocess.run(
-                [git_exe, "--git-dir", str(bare), "ls-tree", "FETCH_HEAD", vpath],
+                [git_exe, "--git-dir", str(bare), "ls-tree", "-d", "FETCH_HEAD", vpath],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -816,7 +816,9 @@ def _path_exists_in_tree_at_ref(
             log(f"  [x] ls-tree failed via {label}: {error}")
             return False
 
-        if output and output.strip():
+        # ``-d`` also includes gitlinks (160000 commit), which cannot be
+        # materialized as plugin content without following another repository.
+        if output and output.split(maxsplit=2)[:2] == ["040000", "tree"]:
             log(f"  [+] {vpath}@{ref} present in tree")
             return True
         log(f"  [!] {vpath} not present in tree at {ref}")
