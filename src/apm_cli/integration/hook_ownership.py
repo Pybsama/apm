@@ -71,15 +71,23 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _reject_non_json_constant(constant: str) -> None:
+    raise ValueError(f"invalid JSON constant: {constant}")
+
+
 def canonicalize_hook_sidecar(sidecar_bytes: bytes) -> bytes:
     """Compare all ownership content without depending on JSON object-key order.
 
     Keep list order and every field, including ownership markers. Reject
-    duplicate keys rather than silently discarding part of a modified sidecar.
+    duplicate keys and non-JSON constants rather than normalizing invalid input.
     """
     # The integrator reads sidecars as UTF-8; json.loads(bytes) would also
     # accept UTF-16/32 files that the next install cannot read.
-    sidecar = json.loads(sidecar_bytes.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
+    sidecar = json.loads(
+        sidecar_bytes.decode("utf-8"),
+        object_pairs_hook=_reject_duplicate_keys,
+        parse_constant=_reject_non_json_constant,
+    )
     if not isinstance(sidecar, dict):
         raise ValueError("ownership sidecar must be a JSON object")
     return json.dumps(sidecar, sort_keys=True, separators=(",", ":")).encode("utf-8")

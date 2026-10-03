@@ -443,6 +443,28 @@ def test_diff_engine_hook_sidecar_compares_json_content(tmp_path, project_bytes,
     assert (project / rel).read_bytes() == project_bytes
 
 
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_diff_engine_hook_sidecar_rejects_matching_non_json_constants(tmp_path, constant):
+    """Equal invalid JSON must not become clean drift through canonicalization."""
+    from apm_cli.integration.targets import KNOWN_TARGETS
+
+    scratch = tmp_path / "scratch"
+    project = tmp_path / "project"
+    rel = ".claude/apm-hooks.json"
+    invalid_bytes = ('{"PreToolUse":[{"timeout":' + constant + "}]}").encode()
+    _write(scratch / rel, invalid_bytes)
+    _write(project / rel, invalid_bytes)
+
+    findings = diff_scratch_against_project(
+        scratch, project, _empty_lockfile(), targets=[KNOWN_TARGETS["claude"]]
+    )
+
+    assert [(finding.kind, finding.path) for finding in findings] == [("modified", rel)]
+    assert constant in findings[0].inline_diff
+    assert (scratch / rel).read_bytes() == invalid_bytes
+    assert (project / rel).read_bytes() == invalid_bytes
+
+
 def test_diff_engine_reports_malformed_shared_hook_event_as_modified(tmp_path):
     """A malformed native event remains drift rather than aborting audit."""
     from apm_cli.integration.targets import KNOWN_TARGETS
