@@ -49,7 +49,7 @@ def test_run_records_complete_keys_before_only_filter(monkeypatch):
     assert ctx.intended_dep_keys == {selected.get_unique_key()}
 
 
-def test_only_filter_preserves_structured_versioned_path_and_descendants():
+def test_only_filter_preserves_structured_versioned_path_and_descendants() -> None:
     selected = DependencyReference.parse_from_dict(
         {"git": "https://github.com/acme/catalog", "path": "plugins/tool-1.2.3", "ref": "release"}
     )

@@ -3,8 +3,10 @@
 import os
 import subprocess
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from apm_cli.deps import github_downloader_validation as validation
 from apm_cli.deps.github_downloader import GitHubPackageDownloader
@@ -23,8 +25,9 @@ from tests.utils.local_git_repository import LocalGitRepositoryFactory
         ("submodule-1.2.3", False),
     ],
 )
+@pytest.mark.parametrize("api_body", [b'{"type":"file"}', b"invalid json"])
 def test_subdirectory_probe_requires_a_git_tree(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str, expected: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str, expected: bool, api_body: bytes
 ) -> None:
     isolated = IsolatedApmEnvironment.create(tmp_path / "scenario", base_env=dict(os.environ))
     environment = isolated.subprocess_env()
@@ -63,10 +66,18 @@ def test_subdirectory_probe_requires_a_git_tree(
         {"git": "https://github.com/acme/catalog", "path": path, "ref": commit.sha}
     )
     attempt = validation.AttemptSpec("local fixture", repository.file_url, environment)
-
-    assert (
-        validation._path_exists_in_tree_at_ref(
-            GitHubPackageDownloader(), dependency, path, commit.sha, lambda _message: None, attempt
-        )
-        is expected
+    downloader = GitHubPackageDownloader()
+    downloader.auth_resolver = MagicMock()
+    downloader.auth_resolver.uses_public_github_anonymous_first.return_value = False
+    downloader.auth_resolver.resolve_for_dep.return_value = MagicMock(
+        token=None, git_env=environment
     )
+    response = requests.Response()
+    response.status_code = 200
+    response._content = api_body
+    with (
+        patch.object(downloader, "download_raw_file", side_effect=RuntimeError("404")),
+        patch.object(downloader, "_resilient_get", return_value=response),
+        patch.object(validation, "_build_validation_attempts", return_value=[attempt]),
+    ):
+        assert downloader.validate_virtual_package_exists(dependency) is expected
