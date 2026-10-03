@@ -387,6 +387,62 @@ def test_diff_engine_hook_merge_target_tampering_is_modified(tmp_path):
     assert [(finding.kind, finding.path) for finding in findings] == [("modified", rel)]
 
 
+@pytest.mark.parametrize(
+    ("project_bytes", "modified"),
+    [
+        (b'{"B":[], "A":[{"command":"one","timeout":1},{"command":"two"}]}', False),
+        (b'{"A":[{"timeout":1,"command":"one"},{"command":"two"}],"B":[]}', False),
+        (b'{"A":[{"command":"changed","timeout":1},{"command":"two"}],"B":[]}', True),
+        (b'{"A":[{"command":"one","timeout":true},{"command":"two"}],"B":[]}', True),
+        (b'{"A":[{"command":"two"},{"command":"one","timeout":1}],"B":[]}', True),
+        (b'{"A":[{"command":"one","timeout":1}],"B":[]}', True),
+        (b'{"A":[{"command":"one","timeout":1},{"command":"two"}],"B":[],"C":[]}', True),
+        (b'{"A":[],"A":[{"command":"one","timeout":1},{"command":"two"}],"B":[]}', True),
+        (
+            b'{"A":[{"command":"discarded","command":"one","timeout":1},{"command":"two"}],"B":[]}',
+            True,
+        ),
+        (b"{invalid json", True),
+        (b"[]", True),
+        ('{"A":[{"command":"one","timeout":1},{"command":"two"}],"B":[]}'.encode("utf-16"), True),
+        ('{"A":[{"command":"one","timeout":1},{"command":"two"}],"B":[]}'.encode("utf-32"), True),
+    ],
+    ids=[
+        "event-key-order",
+        "entry-key-order",
+        "command",
+        "value-type",
+        "execution-order",
+        "removed-entry",
+        "added-event",
+        "duplicate-event",
+        "duplicate-field",
+        "invalid-json",
+        "non-object",
+        "utf-16",
+        "utf-32",
+    ],
+)
+def test_diff_engine_hook_sidecar_compares_json_content(tmp_path, project_bytes, modified):
+    """Only object ordering/formatting is irrelevant; all content is owned."""
+    from apm_cli.integration.targets import KNOWN_TARGETS
+
+    scratch = tmp_path / "scratch"
+    project = tmp_path / "project"
+    rel = ".claude/apm-hooks.json"
+    _write(scratch / rel, b'{"A":[{"command":"one","timeout":1},{"command":"two"}],"B":[]}')
+    _write(project / rel, project_bytes)
+
+    findings = diff_scratch_against_project(
+        scratch, project, _empty_lockfile(), targets=[KNOWN_TARGETS["claude"]]
+    )
+
+    assert [(finding.kind, finding.path) for finding in findings] == (
+        [("modified", rel)] if modified else []
+    )
+    assert (project / rel).read_bytes() == project_bytes
+
+
 def test_diff_engine_reports_malformed_shared_hook_event_as_modified(tmp_path):
     """A malformed native event remains drift rather than aborting audit."""
     from apm_cli.integration.targets import KNOWN_TARGETS
